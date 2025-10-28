@@ -1,36 +1,47 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Button } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { db } from '../firebase';
+import { collection, addDoc, getDocs } from 'firebase/firestore';
 
 export default function SectionAnnouncementScreen() {
   const navigation = useNavigation();
+  const [announcements, setAnnouncements] = useState([]);
+  const [newAnnouncement, setNewAnnouncement] = useState('');
 
-  const announcements = [
-    {
-      id: 1,
-      professor: 'Prof. Cuestas',
-      timestamp: 'Oct 27, 2025 7:30 AM',
-      message: 'Hello, good morning! My apologies for this late notice, I am attending a Zumba workshop. I will be uploading video lectures soonest. Thank you.',
-      likes: 5,
-      comments: 2
-    },
-    {
-      id: 2,
-      professor: 'Prof. Martinez',
-      timestamp: 'Oct 26, 2025 2:15 PM',
-      message: 'Reminder: Our midterm exam will be on November 5th. Please review chapters 1-6. Study guide will be posted tomorrow.',
-      likes: 12,
-      comments: 7
-    },
-    {
-      id: 3,
-      professor: 'Prof. Garcia',
-      timestamp: 'Oct 25, 2025 9:45 AM',
-      message: 'Great job on the group presentations yesterday! Grades will be posted by Friday. Keep up the excellent work.',
-      likes: 8,
-      comments: 3
+  // Safety check for db
+  const announcementsCollectionRef = db ? collection(db, 'sectionAnnouncements') : null;
+
+  const getAnnouncements = async () => {
+    if (!announcementsCollectionRef) return;
+    try {
+      const data = await getDocs(announcementsCollectionRef);
+      setAnnouncements(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
     }
-  ];
+  };
+
+  useEffect(() => {
+    getAnnouncements();
+  }, []);
+
+  const addAnnouncement = async () => {
+    if (newAnnouncement.trim() === '' || !announcementsCollectionRef) return;
+    try {
+      await addDoc(announcementsCollectionRef, {
+        professor: 'Prof. User',
+        timestamp: new Date().toISOString(),
+        message: newAnnouncement,
+        likes: 0,
+        comments: 0
+      });
+      setNewAnnouncement('');
+      getAnnouncements();
+    } catch (error) {
+      console.error('Error adding announcement:', error);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -73,10 +84,16 @@ export default function SectionAnnouncementScreen() {
         ))}
       </ScrollView>
 
-      {/* Add Announcement Button */}
-      <TouchableOpacity style={styles.addButton}>
-        <Text style={styles.addButtonText}>+ Add Announcement</Text>
-      </TouchableOpacity>
+      {/* Add Announcement Section */}
+        <View style={styles.addAnnouncementContainer}>
+            <TextInput
+            style={styles.input}
+            placeholder="Add new announcement"
+            value={newAnnouncement}
+            onChangeText={setNewAnnouncement}
+            />
+            <Button title="Post" onPress={addAnnouncement} />
+        </View>
     </View>
   );
 }
@@ -188,16 +205,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
   },
-  addButton: {
-    backgroundColor: '#E75C1A',
-    padding: 16,
-    margin: 16,
-    borderRadius: 12,
-    alignItems: 'center',
+  addAnnouncementContainer: {
+      padding: 16,
+      backgroundColor: '#fff',
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+  input: {
+      height: 40,
+      borderColor: 'gray',
+      borderWidth: 1,
+      marginBottom: 10,
+      paddingHorizontal: 10,
   },
 });

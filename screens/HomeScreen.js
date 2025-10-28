@@ -207,7 +207,10 @@ export default function HomeScreen() {
                   }}>
                     <Text style={styles.userOption}>My Profile</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity>
+                  <TouchableOpacity onPress={() => {
+                    setShowSideMenu(false);
+                    navigation.navigate('Settings');
+                  }}>
                     <Text style={styles.userOption}>Settings</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={handleSignOut}>

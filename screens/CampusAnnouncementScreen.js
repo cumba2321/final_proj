@@ -1,57 +1,49 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Button } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { db } from '../firebase';
+import { collection, addDoc, getDocs } from 'firebase/firestore';
 
 export default function CampusAnnouncementScreen() {
   const navigation = useNavigation();
+  const [announcements, setAnnouncements] = useState([]);
+  const [newAnnouncement, setNewAnnouncement] = useState('');
 
-  const announcements = [
-    {
-      id: 1,
-      title: 'Campus Health and Safety Protocol Update',
-      department: 'Health Services',
-      timestamp: 'Oct 28, 2025 8:00 AM',
-      priority: 'high',
-      message: 'New health and safety protocols are now in effect. All students and faculty must follow the updated guidelines when entering campus facilities.',
-      category: 'Health & Safety',
-    },
-    {
-      id: 2,
-      title: 'Library Extended Hours During Finals Week',
-      department: 'Library Services',
-      timestamp: 'Oct 27, 2025 2:30 PM',
-      priority: 'medium',
-      message: 'The campus library will be open 24/7 starting November 1st through November 15th to support students during finals preparation.',
-      category: 'Academic',
-    },
-    {
-      id: 3,
-      title: 'Campus Wi-Fi Maintenance',
-      department: 'IT Services',
-      timestamp: 'Oct 26, 2025 4:15 PM',
-      priority: 'medium',
-      message: 'Scheduled maintenance on campus Wi-Fi network will occur this Saturday from 2:00 AM to 6:00 AM. Some connectivity issues may be experienced.',
-      category: 'Technology',
-    },
-    {
-      id: 4,
-      title: 'Student Activities Fair',
-      department: 'Student Affairs',
-      timestamp: 'Oct 25, 2025 10:00 AM',
-      priority: 'low',
-      message: 'Join us for the annual Student Activities Fair on November 3rd at the main quad. Discover clubs, organizations, and volunteer opportunities.',
-      category: 'Events',
-    },
-    {
-      id: 5,
-      title: 'Parking Lot C Closure',
-      department: 'Facilities Management',
-      timestamp: 'Oct 24, 2025 3:45 PM',
-      priority: 'high',
-      message: 'Parking Lot C will be closed for maintenance from October 30th to November 5th. Please use alternative parking areas.',
-      category: 'Facilities',
+  // Safety check for db
+  const announcementsCollectionRef = db ? collection(db, 'campusAnnouncements') : null;
+
+  const getAnnouncements = async () => {
+    if (!announcementsCollectionRef) return;
+    try {
+      const data = await getDocs(announcementsCollectionRef);
+      setAnnouncements(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
     }
-  ];
+  };
+
+  useEffect(() => {
+    getAnnouncements();
+  }, []);
+
+  const addAnnouncement = async () => {
+    if (newAnnouncement.trim() === '' || !announcementsCollectionRef) return;
+    try {
+      await addDoc(announcementsCollectionRef, {
+        title: newAnnouncement,
+        department: 'Admin',
+        timestamp: new Date().toISOString(),
+        priority: 'high',
+        message: newAnnouncement,
+        category: 'General',
+      });
+      setNewAnnouncement('');
+      getAnnouncements();
+    } catch (error) {
+      console.error('Error adding announcement:', error);
+    }
+  };
+
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -87,9 +79,9 @@ export default function CampusAnnouncementScreen() {
       </View>
 
       {/* Filter Categories */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false} 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
         style={styles.filterContainer}
       >
         <TouchableOpacity style={[styles.filterChip, styles.activeFilter]}>
@@ -115,7 +107,7 @@ export default function CampusAnnouncementScreen() {
           <View key={announcement.id} style={styles.announcementCard}>
             {/* Priority Indicator */}
             <View style={[styles.priorityIndicator, { backgroundColor: getPriorityColor(announcement.priority) }]} />
-            
+
             <View style={styles.cardContent}>
               <View style={styles.announcementHeader}>
                 <View style={styles.headerTop}>
@@ -131,11 +123,11 @@ export default function CampusAnnouncementScreen() {
                   <Text style={styles.timestamp}>{announcement.timestamp}</Text>
                 </View>
               </View>
-              
+
               <Text style={styles.announcementText}>
                 {announcement.message}
               </Text>
-              
+
               <View style={styles.announcementActions}>
                 <TouchableOpacity style={styles.actionButton}>
                   <Text style={styles.actionIcon}>📌</Text>
@@ -154,6 +146,15 @@ export default function CampusAnnouncementScreen() {
           </View>
         ))}
       </ScrollView>
+      <View style={styles.addAnnouncementContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="Add new announcement"
+          value={newAnnouncement}
+          onChangeText={setNewAnnouncement}
+        />
+        <Button title="Post" onPress={addAnnouncement} />
+        </View>
     </View>
   );
 }
@@ -311,4 +312,15 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '500',
   },
+  addAnnouncementContainer: {
+    padding: 16,
+    backgroundColor: '#fff',
+},
+input: {
+    height: 40,
+    borderColor: 'gray',
+    borderWidth: 1,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+},
 });
