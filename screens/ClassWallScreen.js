@@ -1,0 +1,375 @@
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+
+export default function ClassWallScreen() {
+  const navigation = useNavigation();
+  const [newPost, setNewPost] = useState('');
+
+  const posts = [
+    {
+      id: 1,
+      author: 'Maria Santos',
+      role: 'Student',
+      timestamp: 'Oct 27, 2025 3:45 PM',
+      message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
+      likes: 3,
+      comments: 5,
+      replies: [
+        { author: 'John Doe', message: 'I can share my notes with you. Will send them later.' },
+        { author: 'Sarah Kim', message: 'Same here! Check your email.' }
+      ]
+    },
+    {
+      id: 2,
+      author: 'Alex Rivera',
+      role: 'Student',
+      timestamp: 'Oct 27, 2025 1:20 PM',
+      message: 'Study group for the upcoming exam? We could meet at the library this weekend.',
+      likes: 8,
+      comments: 12,
+      replies: []
+    },
+    {
+      id: 3,
+      author: 'Prof. Cuestas',
+      role: 'Instructor',
+      timestamp: 'Oct 26, 2025 4:30 PM',
+      message: 'Great discussion in class today! Remember to submit your reflection papers by Friday.',
+      likes: 15,
+      comments: 4,
+      replies: []
+    },
+    {
+      id: 4,
+      author: 'Jessica Chen',
+      role: 'Student',
+      timestamp: 'Oct 26, 2025 11:15 AM',
+      message: 'Found this interesting article related to our current topic. Thought you might find it useful: [link]',
+      likes: 6,
+      comments: 3,
+      replies: []
+    }
+  ];
+
+  const handlePost = () => {
+    if (newPost.trim()) {
+      // In a real app, this would add to the posts array
+      console.log('New post:', newPost);
+      setNewPost('');
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backIcon}>‹</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Class Wall</Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      {/* New Post Section */}
+      <View style={styles.newPostSection}>
+        <View style={styles.newPostHeader}>
+          <View style={styles.userIcon}>
+            <Text style={styles.userIconText}>👤</Text>
+          </View>
+          <Text style={styles.userName}>You</Text>
+        </View>
+        <TextInput
+          style={styles.newPostInput}
+          placeholder="Share something with your class..."
+          multiline
+          value={newPost}
+          onChangeText={setNewPost}
+        />
+        <TouchableOpacity style={styles.postButton} onPress={handlePost}>
+          <Text style={styles.postButtonText}>Post</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Posts List */}
+      <ScrollView style={styles.content}>
+        {posts.map((post) => (
+          <View key={post.id} style={styles.postCard}>
+            <View style={styles.postHeader}>
+              <View style={[
+                styles.profileIcon, 
+                post.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
+              ]}>
+                <Text style={styles.profileIconText}>
+                  {post.role === 'Instructor' ? '👨‍🏫' : '👤'}
+                </Text>
+              </View>
+              <View style={styles.postInfo}>
+                <View style={styles.authorRow}>
+                  <Text style={styles.authorName}>{post.author}</Text>
+                  <Text style={[
+                    styles.roleTag,
+                    post.role === 'Instructor' ? styles.instructorTag : styles.studentTag
+                  ]}>
+                    {post.role}
+                  </Text>
+                </View>
+                <Text style={styles.timestamp}>{post.timestamp}</Text>
+              </View>
+            </View>
+            <Text style={styles.postText}>{post.message}</Text>
+            <View style={styles.postActions}>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionIcon}>♡</Text>
+                <Text style={styles.actionCount}>{post.likes}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionIcon}>💬</Text>
+                <Text style={styles.actionCount}>{post.comments}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionIcon}>↗</Text>
+                <Text style={styles.actionText}>Share</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Replies Preview */}
+            {post.replies.length > 0 && (
+              <View style={styles.repliesSection}>
+                <Text style={styles.repliesHeader}>Recent replies:</Text>
+                {post.replies.slice(0, 2).map((reply, index) => (
+                  <View key={index} style={styles.replyItem}>
+                    <Text style={styles.replyAuthor}>{reply.author}:</Text>
+                    <Text style={styles.replyText}>{reply.message}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 40,
+    paddingBottom: 16,
+    backgroundColor: '#fff',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  backButton: {
+    padding: 8,
+  },
+  backIcon: {
+    fontSize: 24,
+    color: '#333',
+    fontWeight: 'bold',
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  placeholder: {
+    width: 40,
+  },
+  newPostSection: {
+    backgroundColor: '#fff',
+    padding: 16,
+    marginBottom: 8,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  newPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  userIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E75C1A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  userIconText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  userName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  newPostInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+    fontSize: 14,
+  },
+  postButton: {
+    backgroundColor: '#E75C1A',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignSelf: 'flex-end',
+  },
+  postButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  postCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  profileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  instructorIcon: {
+    backgroundColor: '#E75C1A',
+  },
+  studentIcon: {
+    backgroundColor: '#4A90E2',
+  },
+  profileIconText: {
+    color: '#fff',
+    fontSize: 18,
+  },
+  postInfo: {
+    flex: 1,
+  },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  authorName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    marginRight: 8,
+  },
+  roleTag: {
+    fontSize: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  instructorTag: {
+    backgroundColor: '#FFF3E0',
+    color: '#E75C1A',
+  },
+  studentTag: {
+    backgroundColor: '#E3F2FD',
+    color: '#4A90E2',
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#888',
+  },
+  postText: {
+    fontSize: 14,
+    color: '#444',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  postActions: {
+    flexDirection: 'row',
+    gap: 20,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 4,
+  },
+  actionIcon: {
+    fontSize: 16,
+    color: '#888',
+  },
+  actionCount: {
+    fontSize: 12,
+    color: '#888',
+  },
+  actionText: {
+    fontSize: 12,
+    color: '#888',
+  },
+  repliesSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  repliesHeader: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  replyItem: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  replyAuthor: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4A90E2',
+    marginRight: 4,
+  },
+  replyText: {
+    fontSize: 12,
+    color: '#666',
+    flex: 1,
+  },
+});

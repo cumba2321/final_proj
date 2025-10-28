@@ -14,7 +14,7 @@ export default function LoginScreen() {
       .then(userCredentials => {
         const user = userCredentials.user;
         console.log('Logged in with:', user.email);
-        // Navigation will be handled automatically by onAuthStateChanged in App.js
+        navigation.navigate('MainTabs', { screen: 'Home' });
       })
       .catch(error => alert(error.message));
   };
