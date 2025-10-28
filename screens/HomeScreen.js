@@ -1,14 +1,36 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { signOut } from 'firebase/auth';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 
 export default function HomeScreen() {
   const [showSectionDropdown, setShowSectionDropdown] = useState(false);
   const [showSideMenu, setShowSideMenu] = useState(false);
   const [selectedSection, setSelectedSection] = useState('Section Announcement');
+  const [currentUser, setCurrentUser] = useState(null);
   const navigation = useNavigation();
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Refresh user data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      const user = auth.currentUser;
+      if (user) {
+        user.reload().then(() => {
+          setCurrentUser({ ...user });
+        }).catch(() => {
+          setCurrentUser({ ...user });
+        });
+      }
+    }, [])
+  );
 
   const handleSignOut = () => {
     signOut(auth).catch(error => alert(error.message));
@@ -166,12 +188,23 @@ export default function HomeScreen() {
 
             <View style={styles.userSection}>
               <View style={styles.userInfo}>
-                <View style={styles.userIcon}>
-                  <Text style={styles.userIconText}>👤</Text>
-                </View>
+                {currentUser?.photoURL ? (
+                  <Image source={{ uri: currentUser.photoURL }} style={styles.userAvatar} />
+                ) : (
+                  <View style={styles.userIcon}>
+                    <Text style={styles.userIconText}>
+                      {currentUser?.displayName?.charAt(0) || currentUser?.email?.charAt(0) || '👤'}
+                    </Text>
+                  </View>
+                )}
                 <View>
-                  <Text style={styles.userName}>Ejine Mangcobihon</Text>
-                  <TouchableOpacity>
+                  <Text style={styles.userName}>
+                    {currentUser?.displayName || currentUser?.email || 'Ejine Mangcobihon'}
+                  </Text>
+                  <TouchableOpacity onPress={() => {
+                    setShowSideMenu(false);
+                    navigation.navigate('MyProfile');
+                  }}>
                     <Text style={styles.userOption}>My Profile</Text>
                   </TouchableOpacity>
                   <TouchableOpacity>
@@ -405,6 +438,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#333',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
+  },
+  userAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     marginRight: 12,
   },
   userIconText: {

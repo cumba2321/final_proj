@@ -15,6 +15,8 @@ import InstructorFeedbackScreen from './screens/InstructorFeedbackScreen';
 import CampusAnnouncementScreen from './screens/CampusAnnouncementScreen';
 import SectionAnnouncementScreen from './screens/SectionAnnouncementScreen';
 import ClassWallScreen from './screens/ClassWallScreen';
+import MyProfileScreen from './screens/MyProfileScreen';
+import EditProfileScreen from './screens/EditProfileScreen';
 import ProgressScreen from './screens/ProgressScreen';
 import { StatusBar } from 'expo-status-bar';
 
@@ -54,10 +56,12 @@ export default function App() {
             <Stack.Screen name="SignUp" component={SignUpScreen} />
           </>
         )}
-        <Stack.Screen name="InstructorFeedback" component={InstructorFeedbackScreen} />
+  <Stack.Screen name="InstructorFeedback" component={InstructorFeedbackScreen} />
         <Stack.Screen name="CampusAnnouncement" component={CampusAnnouncementScreen} />
         <Stack.Screen name="SectionAnnouncement" component={SectionAnnouncementScreen} />
         <Stack.Screen name="ClassWall" component={ClassWallScreen} />
+        <Stack.Screen name="MyProfile" component={MyProfileScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="Progress" component={ProgressScreen} />
       </Stack.Navigator>
       <StatusBar style="auto" />

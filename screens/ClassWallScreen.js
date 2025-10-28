@@ -1,62 +1,158 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { collection, addDoc, getDocs } from 'firebase/firestore';
+
+// Import Firebase with error handling
+let db = null;
+try {
+  const firebase = require('../firebase');
+  db = firebase.db;
+} catch (error) {
+  console.log('Firebase not available:', error);
+}
 
 export default function ClassWallScreen() {
   const navigation = useNavigation();
   const [newPost, setNewPost] = useState('');
+  const [posts, setPosts] = useState([]);
+  const [isPosting, setIsPosting] = useState(false);
 
-  const posts = [
-    {
-      id: 1,
-      author: 'Maria Santos',
-      role: 'Student',
-      timestamp: 'Oct 27, 2025 3:45 PM',
-      message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
-      likes: 3,
-      comments: 5,
-      replies: [
-        { author: 'John Doe', message: 'I can share my notes with you. Will send them later.' },
-        { author: 'Sarah Kim', message: 'Same here! Check your email.' }
-      ]
-    },
-    {
-      id: 2,
-      author: 'Alex Rivera',
-      role: 'Student',
-      timestamp: 'Oct 27, 2025 1:20 PM',
-      message: 'Study group for the upcoming exam? We could meet at the library this weekend.',
-      likes: 8,
-      comments: 12,
-      replies: []
-    },
-    {
-      id: 3,
-      author: 'Prof. Cuestas',
-      role: 'Instructor',
-      timestamp: 'Oct 26, 2025 4:30 PM',
-      message: 'Great discussion in class today! Remember to submit your reflection papers by Friday.',
-      likes: 15,
-      comments: 4,
-      replies: []
-    },
-    {
-      id: 4,
-      author: 'Jessica Chen',
-      role: 'Student',
-      timestamp: 'Oct 26, 2025 11:15 AM',
-      message: 'Found this interesting article related to our current topic. Thought you might find it useful: [link]',
-      likes: 6,
-      comments: 3,
-      replies: []
+  // Initialize posts collection reference
+  const postsCollectionRef = db ? collection(db, 'classWall') : null;
+
+  const getPosts = async () => {
+    if (!postsCollectionRef) {
+      console.log('Firebase not initialized, using default posts');
+      // Use default posts if Firebase is not available
+      setPosts([
+        {
+          id: '1',
+          author: 'Maria Santos',
+          role: 'Student',
+          timestamp: 'Oct 27, 2025 3:45 PM',
+          message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
+          likes: 3,
+          comments: 5,
+          replies: []
+        },
+        {
+          id: '2',
+          author: 'Alex Rivera',
+          role: 'Student',
+          timestamp: 'Oct 27, 2025 1:20 PM',
+          message: 'Study group for the upcoming exam? We could meet at the library this weekend.',
+          likes: 8,
+          comments: 12,
+          replies: []
+        }
+      ]);
+      return;
     }
-  ];
 
-  const handlePost = () => {
-    if (newPost.trim()) {
-      // In a real app, this would add to the posts array
-      console.log('New post:', newPost);
+    try {
+      const data = await getDocs(postsCollectionRef);
+      const postsData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+      
+      // Sort posts by creation time (newest first)
+      postsData.sort((a, b) => {
+        if (a.createdAt && b.createdAt) {
+          return new Date(b.createdAt.seconds * 1000) - new Date(a.createdAt.seconds * 1000);
+        }
+        return 0;
+      });
+      
+      setPosts(postsData);
+    } catch (error) {
+      console.error("Error fetching posts: ", error);
+      // Fallback to default posts on error
+      setPosts([
+        {
+          id: '1',
+          author: 'Maria Santos',
+          role: 'Student',
+          timestamp: 'Oct 27, 2025 3:45 PM',
+          message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
+          likes: 3,
+          comments: 5,
+          replies: []
+        }
+      ]);
+    }
+  };
+
+  useEffect(() => {
+    getPosts();
+  }, []);
+
+  const handlePost = async () => {
+    if (newPost.trim() && !isPosting) {
+      setIsPosting(true);
+      
+      // Create the new post object
+      const currentTime = new Date();
+      const formattedTime = currentTime.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      const newPostData = {
+        author: 'You',
+        role: 'Student',
+        timestamp: formattedTime,
+        message: newPost.trim(),
+        likes: 0,
+        comments: 0,
+        replies: [],
+        id: Date.now().toString() // Temporary ID until Firebase assigns real one
+      };
+
+      // Add post to local state immediately (optimistic update)
+      setPosts(prevPosts => [newPostData, ...prevPosts]);
+      
+      // Clear the input
+      const originalPost = newPost.trim();
       setNewPost('');
+
+      // If Firebase is not available, just keep the local post
+      if (!postsCollectionRef) {
+        console.log('Firebase not available, keeping post locally');
+        setIsPosting(false);
+        return;
+      }
+
+      try {
+        // Save to Firebase
+        const docRef = await addDoc(postsCollectionRef, {
+          author: 'You',
+          role: 'Student',
+          timestamp: formattedTime,
+          message: originalPost,
+          likes: 0,
+          comments: 0,
+          replies: [],
+          createdAt: currentTime
+        });
+
+        // Update the local post with the real Firebase ID
+        setPosts(prevPosts => 
+          prevPosts.map(post => 
+            post.id === newPostData.id 
+              ? { ...post, id: docRef.id }
+              : post
+          )
+        );
+      } catch (error) {
+        console.error("Error adding post: ", error);
+        // Keep the local post even if Firebase save failed
+        console.log('Firebase save failed, keeping post locally');
+      } finally {
+        setIsPosting(false);
+      }
     }
   };
 
@@ -86,8 +182,20 @@ export default function ClassWallScreen() {
           value={newPost}
           onChangeText={setNewPost}
         />
-        <TouchableOpacity style={styles.postButton} onPress={handlePost}>
-          <Text style={styles.postButtonText}>Post</Text>
+        <TouchableOpacity 
+          style={[
+            styles.postButton, 
+            (isPosting || !newPost.trim()) && styles.postButtonDisabled
+          ]} 
+          onPress={handlePost}
+          disabled={isPosting || !newPost.trim()}
+        >
+          <Text style={[
+            styles.postButtonText,
+            (isPosting || !newPost.trim()) && styles.postButtonTextDisabled
+          ]}>
+            {isPosting ? 'Posting...' : 'Post'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -97,7 +205,7 @@ export default function ClassWallScreen() {
           <View key={post.id} style={styles.postCard}>
             <View style={styles.postHeader}>
               <View style={[
-                styles.profileIcon, 
+                styles.profileIcon,
                 post.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
               ]}>
                 <Text style={styles.profileIconText}>
@@ -132,7 +240,7 @@ export default function ClassWallScreen() {
                 <Text style={styles.actionText}>Share</Text>
               </TouchableOpacity>
             </View>
-            
+
             {/* Replies Preview */}
             {post.replies.length > 0 && (
               <View style={styles.repliesSection}>
@@ -237,10 +345,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignSelf: 'flex-end',
   },
+  postButtonDisabled: {
+    backgroundColor: '#ccc',
+    opacity: 0.6,
+  },
   postButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  postButtonTextDisabled: {
+    color: '#888',
   },
   content: {
     flex: 1,
