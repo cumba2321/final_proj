@@ -1,0 +1,33 @@
+// Firestore Security Rules for ClassWall with Comments
+// Copy these rules to your Firebase Console > Firestore Database > Rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection - users can read/write their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // ClassWall posts - authenticated users can read all, create posts, anyone can like/comment
+    match /classWall/{postId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null; // Anyone can create posts
+      allow update: if request.auth != null; // Anyone can update (for likes/comments count)
+      allow delete: if request.auth != null && 
+                    request.auth.uid == resource.data.authorId; // Only author can delete
+      
+      // Comments subcollection - any authenticated user can comment on any post
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null; // Anyone can comment on any post
+        allow update, delete: if request.auth != null; // Anyone can edit/delete any comment
+      }
+    }
+    
+    // Default deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

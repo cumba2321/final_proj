@@ -14,7 +14,8 @@ export default function LoginScreen() {
       .then(userCredentials => {
         const user = userCredentials.user;
         console.log('Logged in with:', user.email);
-        navigation.navigate('MainTabs', { screen: 'Home' });
+        // Navigation will happen automatically due to conditional rendering in App.js
+        // No manual navigation needed
       })
       .catch(error => alert(error.message));
   };

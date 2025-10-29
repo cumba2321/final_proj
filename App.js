@@ -36,20 +36,40 @@ function MainTabs() {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
+      setIsLoading(false);
     });
 
     return unsubscribe;
   }, []);
 
+  if (isLoading) {
+    return null; // or a loading screen
+  }
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <Stack.Screen name="MainTabs" component={MainTabs} />
+          <>
+            <Stack.Screen 
+              name="MainTabs" 
+              component={MainTabs} 
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen name="InstructorFeedback" component={InstructorFeedbackScreen} />
+            <Stack.Screen name="CampusAnnouncement" component={CampusAnnouncementScreen} />
+            <Stack.Screen name="SectionAnnouncement" component={SectionAnnouncementScreen} />
+            <Stack.Screen name="ClassWall" component={ClassWallScreen} />
+            <Stack.Screen name="MyProfile" component={MyProfileScreen} />
+            <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="Progress" component={ProgressScreen} />
+          </>
         ) : (
           <>
             <Stack.Screen name="Welcome" component={WelcomeScreen} />
@@ -57,14 +77,6 @@ export default function App() {
             <Stack.Screen name="SignUp" component={SignUpScreen} />
           </>
         )}
-  <Stack.Screen name="InstructorFeedback" component={InstructorFeedbackScreen} />
-        <Stack.Screen name="CampusAnnouncement" component={CampusAnnouncementScreen} />
-        <Stack.Screen name="SectionAnnouncement" component={SectionAnnouncementScreen} />
-        <Stack.Screen name="ClassWall" component={ClassWallScreen} />
-        <Stack.Screen name="MyProfile" component={MyProfileScreen} />
-        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-        <Stack.Screen name="Settings" component={SettingsScreen} />
-        <Stack.Screen name="Progress" component={ProgressScreen} />
       </Stack.Navigator>
       <StatusBar style="auto" />
     </NavigationContainer>

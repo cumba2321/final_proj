@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Ale
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { doc, getDoc, collection, getDocs, addDoc, deleteDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, addDoc, deleteDoc, updateDoc, increment, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
@@ -23,6 +23,12 @@ export default function HomeScreen() {
   const [selectedImages, setSelectedImages] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Comment functionality
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [selectedPostForComment, setSelectedPostForComment] = useState(null);
+  const [postComments, setPostComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
   
   const navigation = useNavigation();
 
@@ -60,6 +66,221 @@ export default function HomeScreen() {
       console.error('Error deleting post:', error);
       Alert.alert('Error', 'Failed to delete post');
     }
+  };
+
+  // Comment functions
+  const openCommentModal = async (post) => {
+    setSelectedPostForComment(post);
+    setShowCommentModal(true);
+    await fetchComments(post.id);
+  };
+
+  const closeCommentModal = () => {
+    setShowCommentModal(false);
+    setSelectedPostForComment(null);
+    setPostComments([]);
+    setNewComment('');
+  };
+
+  const fetchComments = async (postId) => {
+    try {
+      if (db) {
+        const commentsCollection = collection(db, 'classWall', postId, 'comments');
+        const commentsSnapshot = await getDocs(commentsCollection);
+        const commentsData = commentsSnapshot.docs.map((doc, index) => {
+          const data = doc.data();
+          return {
+            id: doc.id || `fetched-comment-${index}-${Date.now()}`,
+            ...data,
+            timestamp: data.createdAt && data.createdAt.seconds 
+              ? new Date(data.createdAt.seconds * 1000).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true
+                })
+              : 'Just now'
+          };
+        });
+        
+        // Sort comments by creation time (newest first)
+        commentsData.sort((a, b) => {
+          if (a.createdAt && b.createdAt) {
+            return new Date(b.createdAt.seconds * 1000) - new Date(a.createdAt.seconds * 1000);
+          }
+          return 0;
+        });
+        
+        setPostComments(commentsData);
+      }
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+    }
+  };
+
+  const submitComment = async () => {
+    if (!newComment.trim() || !selectedPostForComment) {
+      Alert.alert('Error', 'Please enter a comment');
+      return;
+    }
+
+    try {
+      const commentData = {
+        author: currentUser?.displayName || currentUser?.email || 'You',
+        authorId: currentUser?.uid || 'anonymous',
+        role: userRole === 'instructor' ? 'Instructor' : 'Student',
+        message: newComment.trim(),
+        createdAt: new Date()
+      };
+
+      let commentId = `comment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Update local state first with formatted timestamp
+      const newCommentWithTimestamp = {
+        ...commentData,
+        id: commentId,
+        timestamp: new Date().toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        })
+      };
+
+      setPostComments(prev => [newCommentWithTimestamp, ...prev]);
+      setNewComment('');
+
+      // Update post comment count in local state
+      setClassWallPosts(prevPosts => 
+        prevPosts.map(p => 
+          p.id === selectedPostForComment.id 
+            ? { ...p, comments: (p.comments || 0) + 1 }
+            : p
+        ).filter((post, index, self) => 
+          // Remove duplicates by ID
+          index === self.findIndex(p => p.id === post.id)
+        )
+      );
+
+      // Sync to Firebase
+      if (db) {
+        try {
+          const firebaseCommentData = {
+            ...commentData,
+            createdAt: serverTimestamp()
+          };
+          
+          const docRef = await addDoc(collection(db, 'classWall', selectedPostForComment.id, 'comments'), firebaseCommentData);
+          
+          // Update comment count on main post
+          await updateDoc(doc(db, 'classWall', selectedPostForComment.id), {
+            comments: increment(1)
+          });
+          
+          console.log('Comment synced to Firebase successfully');
+        } catch (firebaseError) {
+          console.error('Firebase sync error:', firebaseError);
+          
+          // Check if it's a permissions error
+          if (firebaseError.code === 'permission-denied') {
+            Alert.alert(
+              'Sync Warning', 
+              'Comment added locally but not synced to server. Please check your permissions or contact support.',
+              [{ text: 'OK' }]
+            );
+          } else {
+            // For other Firebase errors, still keep the local comment
+            console.log('Comment saved locally despite Firebase error');
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      Alert.alert('Error', 'Failed to add comment. Please try again.');
+    }
+  };
+
+  // Like functions
+  const handleLikePost = async (post) => {
+    try {
+      const currentUserName = currentUser?.displayName || currentUser?.email || 'You';
+      const currentUserId = currentUser?.uid;
+      
+      if (!currentUserId) {
+        Alert.alert('Error', 'Please log in to like posts');
+        return;
+      }
+      
+      // Ensure likedBy is an array, default to empty array if undefined
+      const likedByArray = Array.isArray(post.likedBy) ? post.likedBy : [];
+      
+      // Check if user already liked the post
+      const userLiked = likedByArray.includes(currentUserId);
+      
+      // Update local state immediately for responsive UI
+      setClassWallPosts(prevPosts => 
+        prevPosts.map(p => 
+          p.id === post.id 
+            ? { 
+                ...p, 
+                likes: userLiked ? Math.max((p.likes || 1) - 1, 0) : (p.likes || 0) + 1,
+                likedBy: userLiked 
+                  ? likedByArray.filter(id => id !== currentUserId)
+                  : [...likedByArray, currentUserId]
+              }
+            : p
+        ).filter((post, index, self) => 
+          // Remove duplicates by ID
+          index === self.findIndex(p => p.id === post.id)
+        )
+      );
+
+      // Sync to Firebase
+      if (db) {
+        try {
+          const postRef = doc(db, 'classWall', post.id);
+          
+          if (userLiked) {
+            // Unlike the post
+            await updateDoc(postRef, {
+              likes: increment(-1),
+              likedBy: likedByArray.filter(id => id !== currentUserId)
+            });
+          } else {
+            // Like the post
+            await updateDoc(postRef, {
+              likes: increment(1),
+              likedBy: [...likedByArray, currentUserId]
+            });
+          }
+          
+          console.log('Like synced to Firebase successfully');
+        } catch (firebaseError) {
+          console.error('Firebase like sync error:', firebaseError);
+          
+          if (firebaseError.code === 'permission-denied') {
+            Alert.alert(
+              'Sync Warning', 
+              'Like updated locally but not synced to server. Please check your permissions.',
+              [{ text: 'OK' }]
+            );
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Error updating like:', error);
+      Alert.alert('Error', 'Failed to update like. Please try again.');
+    }
+  };
+
+  // Helper function to check if current user liked a post
+  const isPostLiked = (post) => {
+    const currentUserId = currentUser?.uid;
+    return post.likedBy && Array.isArray(post.likedBy) && currentUserId && post.likedBy.includes(currentUserId);
   };
 
   // Check if current user owns the post
@@ -209,7 +430,7 @@ export default function HomeScreen() {
         const docRef = await addDoc(collection(db, 'classWall'), newPostData);
         newPostId = docRef.id;
       } else {
-        newPostId = Date.now().toString();
+        newPostId = `local_post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       }
 
       // Create post object for local state with formatted timestamp
@@ -226,8 +447,20 @@ export default function HomeScreen() {
         })
       };
 
-      // Add to local state (add to beginning of array for newest first)
-      setClassWallPosts(prevPosts => [newPost, ...prevPosts]);
+      // Add to local state with duplicate prevention
+      setClassWallPosts(prevPosts => {
+        // Check if post already exists
+        const existingPostIndex = prevPosts.findIndex(p => p.id === newPostId);
+        if (existingPostIndex !== -1) {
+          // Replace existing post
+          const updatedPosts = [...prevPosts];
+          updatedPosts[existingPostIndex] = newPost;
+          return updatedPosts;
+        } else {
+          // Add new post to beginning
+          return [newPost, ...prevPosts];
+        }
+      });
       
       closeNewPostModal();
       Alert.alert('Success', 'Post created successfully!');
@@ -385,10 +618,10 @@ export default function HomeScreen() {
     if (db) {
       const postsCollection = collection(db, 'classWall');
       unsubscribePosts = onSnapshot(postsCollection, (snapshot) => {
-        const postsData = snapshot.docs.map(doc => {
+        const postsData = snapshot.docs.map((doc, index) => {
           const data = doc.data();
           return {
-            id: doc.id,
+            id: doc.id || `firebase-post-${index}-${Date.now()}`,
             ...data,
             // Format timestamp for display
             timestamp: data.createdAt && data.createdAt.seconds 
@@ -412,7 +645,33 @@ export default function HomeScreen() {
           return 0;
         });
         
-        setClassWallPosts(postsData);
+        // Update state with duplicate prevention
+        setClassWallPosts(prevPosts => {
+          // Create a Map to track unique posts by ID
+          const postMap = new Map();
+          
+          // Add existing local posts first (to preserve optimistic updates)
+          prevPosts.forEach(post => {
+            if (post.id && post.id.startsWith('local_post_')) {
+              postMap.set(post.id, post);
+            }
+          });
+          
+          // Add/update Firebase posts
+          postsData.forEach(post => {
+            postMap.set(post.id, post);
+          });
+          
+          // Convert back to array and sort
+          const uniquePosts = Array.from(postMap.values());
+          uniquePosts.sort((a, b) => {
+            const timeA = a.createdAt?.seconds || 0;
+            const timeB = b.createdAt?.seconds || 0;
+            return timeB - timeA;
+          });
+          
+          return uniquePosts;
+        });
       }, (error) => {
         console.error('Error listening to posts:', error);
         // Fallback to manual fetch
@@ -504,8 +763,8 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
         
-        {classWallPosts.map((post) => (
-          <View key={post.id} style={styles.postCard}>
+        {classWallPosts.map((post, index) => (
+          <View key={post.id || `post-${index}-${Date.now()}`} style={styles.postCard}>
             <View style={styles.postHeader}>
               <View style={[
                 styles.profileIcon,
@@ -573,13 +832,24 @@ export default function HomeScreen() {
             )}
 
             <View style={styles.postActions}>
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionIcon}>♡</Text>
-                <Text style={styles.actionCount}>{post.likes}</Text>
+              <TouchableOpacity 
+                style={styles.actionButton} 
+                onPress={() => handleLikePost(post)}
+              >
+                <Text style={[
+                  styles.actionIcon,
+                  isPostLiked(post) ? styles.likedIcon : null
+                ]}>
+                  {isPostLiked(post) ? '❤️' : '♡'}
+                </Text>
+                <Text style={styles.actionCount}>{post.likes || 0}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton}>
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => openCommentModal(post)}
+              >
                 <Text style={styles.actionIcon}>💬</Text>
-                <Text style={styles.actionCount}>{post.comments}</Text>
+                <Text style={styles.actionCount}>{post.comments || 0}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton}>
                 <Text style={styles.actionIcon}>↗</Text>
@@ -743,6 +1013,96 @@ export default function HomeScreen() {
               <Text style={styles.postMenuOptionIcon}>🗑️</Text>
               <Text style={[styles.postMenuOptionText, styles.deleteOptionText]}>Delete Post</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Comment Modal */}
+      <Modal visible={showCommentModal} transparent={true} animationType="slide">
+        <View style={styles.commentModalOverlay}>
+          <View style={styles.commentModal}>
+            <View style={styles.commentModalHeader}>
+              <Text style={styles.commentModalTitle}>
+                Comments ({postComments.length})
+              </Text>
+              <TouchableOpacity onPress={closeCommentModal}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Comments List */}
+            <ScrollView style={styles.commentsContainer}>
+              {postComments.length === 0 ? (
+                <View style={styles.noCommentsContainer}>
+                  <Text style={styles.noCommentsText}>No comments yet. Be the first to comment!</Text>
+                </View>
+              ) : (
+                postComments.map((comment, index) => (
+                  <View key={comment.id || `comment-${index}-${Date.now()}`} style={styles.commentItem}>
+                    <View style={[
+                      styles.commentProfileIcon,
+                      comment.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
+                    ]}>
+                      <Text style={styles.commentProfileIconText}>
+                        {comment.role === 'Instructor' ? '👨‍🏫' : '👤'}
+                      </Text>
+                    </View>
+                    <View style={styles.commentContent}>
+                      <View style={styles.commentHeader}>
+                        <Text style={styles.commentAuthor}>{comment.author}</Text>
+                        <Text style={[
+                          styles.commentRoleTag,
+                          comment.role === 'Instructor' ? styles.instructorTag : styles.studentTag
+                        ]}>
+                          {comment.role}
+                        </Text>
+                      </View>
+                      <Text style={styles.commentMessage}>{comment.message}</Text>
+                      <Text style={styles.commentTimestamp}>
+                        {comment.timestamp || 'Just now'}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            {/* Add Comment Section */}
+            <View style={styles.addCommentSection}>
+              <View style={styles.addCommentContainer}>
+                <View style={[
+                  styles.commentProfileIcon,
+                  userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+                ]}>
+                  <Text style={styles.commentProfileIconText}>
+                    {userRole === 'instructor' ? '👨‍🏫' : '👤'}
+                  </Text>
+                </View>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Write a comment..."
+                  placeholderTextColor="#888"
+                  multiline={true}
+                  value={newComment}
+                  onChangeText={setNewComment}
+                  maxLength={500}
+                />
+                <TouchableOpacity 
+                  style={[
+                    styles.submitCommentButton,
+                    newComment.trim() ? styles.submitCommentButtonActive : null
+                  ]}
+                  onPress={submitComment}
+                >
+                  <Text style={[
+                    styles.submitCommentButtonText,
+                    newComment.trim() ? styles.submitCommentButtonTextActive : null
+                  ]}>
+                    Post
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1468,5 +1828,140 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  
+  // Liked post style
+  likedIcon: {
+    color: '#ff3040',
+  },
+  
+  // Comment Modal Styles
+  commentModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  commentModal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    minHeight: '50%',
+  },
+  commentModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  commentModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  commentsContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  noCommentsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noCommentsText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+  },
+  commentItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    alignItems: 'flex-start',
+  },
+  commentProfileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  commentProfileIconText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  commentContent: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 12,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  commentAuthor: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginRight: 8,
+  },
+  commentRoleTag: {
+    fontSize: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  commentMessage: {
+    fontSize: 14,
+    color: '#444',
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  commentTimestamp: {
+    fontSize: 12,
+    color: '#888',
+  },
+  addCommentSection: {
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    padding: 16,
+  },
+  addCommentContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  commentInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    maxHeight: 100,
+    marginHorizontal: 12,
+    fontSize: 14,
+    color: '#333',
+  },
+  submitCommentButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#ddd',
+  },
+  submitCommentButtonActive: {
+    backgroundColor: '#E75C1A',
+  },
+  submitCommentButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#888',
+  },
+  submitCommentButtonTextActive: {
+    color: '#fff',
   },
 });
