@@ -1,17 +1,246 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Alert, TextInput, RefreshControl } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, addDoc, deleteDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 
 export default function HomeScreen() {
-  const [showSectionDropdown, setShowSectionDropdown] = useState(false);
   const [showSideMenu, setShowSideMenu] = useState(false);
-  const [selectedSection, setSelectedSection] = useState('Section Announcement');
   const [currentUser, setCurrentUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
+  const [classWallPosts, setClassWallPosts] = useState([]);
+  
+  // Post menu functionality
+  const [showPostMenu, setShowPostMenu] = useState(false);
+  const [selectedPost, setSelectedPost] = useState(null);
+  
+  // New post modal functionality
+  const [showNewPostModal, setShowNewPostModal] = useState(false);
+  const [newPostText, setNewPostText] = useState('');
+  const [selectedImages, setSelectedImages] = useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  
   const navigation = useNavigation();
+
+  // Post menu functions
+  const openPostMenu = (post) => {
+    setSelectedPost(post);
+    setShowPostMenu(true);
+  };
+
+  const closePostMenu = () => {
+    setShowPostMenu(false);
+    setSelectedPost(null);
+  };
+
+  const deletePost = async () => {
+    if (!selectedPost) return;
+
+    try {
+      // Delete from Firestore if database is available
+      if (db) {
+        await deleteDoc(doc(db, 'classWall', selectedPost.id));
+      }
+      
+      // Remove from local state
+      setClassWallPosts(prevPosts => prevPosts.filter(post => post.id !== selectedPost.id));
+      
+      closePostMenu();
+      Alert.alert('Success', 'Post deleted successfully');
+      
+      // Refresh posts to ensure sync
+      if (db) {
+        await fetchClassWallPosts();
+      }
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      Alert.alert('Error', 'Failed to delete post');
+    }
+  };
+
+  // Check if current user owns the post
+  const isPostOwner = (post) => {
+    const currentUserName = currentUser?.displayName || currentUser?.email || 'You';
+    const currentUserId = currentUser?.uid;
+    
+    // Check by author name or author ID for better accuracy
+    return post.author === currentUserName || 
+           post.author === 'You' || 
+           (post.authorId && currentUserId && post.authorId === currentUserId);
+  };
+
+  // New post functions
+  const openNewPostModal = () => {
+    setShowNewPostModal(true);
+  };
+
+  const closeNewPostModal = () => {
+    setShowNewPostModal(false);
+    setNewPostText('');
+    setSelectedImages([]);
+    setSelectedFiles([]);
+  };
+
+  const handleImagePicker = async () => {
+    try {
+      // Request permission
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Required', 'Permission to access camera roll is required!');
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        allowsMultipleSelection: true,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImages = result.assets.map(asset => ({
+          uri: asset.uri,
+          name: asset.fileName || `image_${Date.now()}.jpg`,
+          type: asset.type || 'image/jpeg',
+          size: asset.fileSize || 0
+        }));
+        
+        setSelectedImages(prev => [...prev, ...newImages]);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const handleCameraPicker = async () => {
+    try {
+      // Request camera permission
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Required', 'Permission to access camera is required!');
+        return;
+      }
+
+      // Launch camera
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImage = {
+          uri: result.assets[0].uri,
+          name: `camera_${Date.now()}.jpg`,
+          type: 'image/jpeg',
+          size: result.assets[0].fileSize || 0
+        };
+        
+        setSelectedImages(prev => [...prev, newImage]);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const handleFilePicker = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newFiles = result.assets.map(asset => ({
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType || 'application/octet-stream',
+          size: asset.size || 0
+        }));
+        
+        setSelectedFiles(prev => [...prev, ...newFiles]);
+      }
+    } catch (error) {
+      console.error('Error picking file:', error);
+      Alert.alert('Error', 'Failed to pick file');
+    }
+  };
+
+  const submitNewPost = async () => {
+    if (!newPostText.trim() && selectedImages.length === 0 && selectedFiles.length === 0) {
+      Alert.alert('Error', 'Please add some content to your post');
+      return;
+    }
+
+    try {
+      // Create new post object
+      const newPostData = {
+        author: currentUser?.displayName || currentUser?.email || 'You',
+        authorId: currentUser?.uid || 'anonymous',
+        role: userRole === 'instructor' ? 'Instructor' : 'Student',
+        message: newPostText,
+        likes: 0,
+        comments: 0,
+        image: selectedImages.length > 0 ? selectedImages[0].uri : null,
+        files: selectedFiles.map(file => ({
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          uri: file.uri
+        })),
+        createdAt: serverTimestamp()
+      };
+
+      let newPostId;
+      
+      // Save to Firestore if database is available
+      if (db) {
+        const docRef = await addDoc(collection(db, 'classWall'), newPostData);
+        newPostId = docRef.id;
+      } else {
+        newPostId = Date.now().toString();
+      }
+
+      // Create post object for local state with formatted timestamp
+      const newPost = {
+        id: newPostId,
+        ...newPostData,
+        timestamp: new Date().toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        })
+      };
+
+      // Add to local state (add to beginning of array for newest first)
+      setClassWallPosts(prevPosts => [newPost, ...prevPosts]);
+      
+      closeNewPostModal();
+      Alert.alert('Success', 'Post created successfully!');
+      
+      // Refresh posts to ensure sync
+      if (db) {
+        await fetchClassWallPosts();
+      }
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post');
+    }
+  };
 
   // Fetch user role from Firestore
   const fetchUserRole = async (user) => {
@@ -27,6 +256,119 @@ export default function HomeScreen() {
     }
   };
 
+  // Fetch ClassWall posts
+  const fetchClassWallPosts = async () => {
+    try {
+      if (db) {
+        const postsCollection = collection(db, 'classWall');
+        const postsSnapshot = await getDocs(postsCollection);
+        const postsData = postsSnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Format timestamp for display
+            timestamp: data.createdAt && data.createdAt.seconds 
+              ? new Date(data.createdAt.seconds * 1000).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true
+                })
+              : data.timestamp || 'Just now'
+          };
+        });
+        
+        // Sort posts by creation time (newest first)
+        postsData.sort((a, b) => {
+          if (a.createdAt && b.createdAt) {
+            return new Date(b.createdAt.seconds * 1000) - new Date(a.createdAt.seconds * 1000);
+          }
+          return 0;
+        });
+        
+        setClassWallPosts(postsData); // Show all posts from Firebase
+      } else {
+        // Fallback mock data when Firebase is not available
+        setClassWallPosts([
+          {
+            id: '1',
+            author: 'Maria Santos',
+            role: 'Student',
+            timestamp: 'Oct 27, 2025 3:45 PM',
+            message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
+            likes: 3,
+            comments: 5,
+          },
+          {
+            id: '2',
+            author: 'Alex Rivera',
+            role: 'Student',
+            timestamp: 'Oct 27, 2025 1:20 PM',
+            message: 'Study group for the upcoming exam? We could meet at the library this weekend.',
+            likes: 8,
+            comments: 12,
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error fetching ClassWall posts:', error);
+      // Fallback data on error
+      setClassWallPosts([
+        {
+          id: '1',
+          author: 'Maria Santos',
+          role: 'Student',
+          timestamp: 'Oct 27, 2025 3:45 PM',
+          message: 'Does anyone have notes from yesterday\'s lecture?',
+          likes: 3,
+          comments: 5,
+        }
+      ]);
+    }
+  };
+
+  // Pull to refresh function
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchClassWallPosts();
+    } catch (error) {
+      console.error('Error refreshing posts:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Helper function to get file icon
+  const getFileIcon = (fileName) => {
+    const extension = fileName?.split('.').pop()?.toLowerCase();
+    switch (extension) {
+      case 'pdf': return '📄';
+      case 'doc':
+      case 'docx': return '📝';
+      case 'xls':
+      case 'xlsx': return '📊';
+      case 'ppt':
+      case 'pptx': return '📺';
+      case 'txt': return '📋';
+      case 'zip':
+      case 'rar': return '🗂️';
+      default: return '📎';
+    }
+  };
+
+  // Helper function to format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -36,7 +378,57 @@ export default function HomeScreen() {
         setUserRole(null);
       }
     });
-    return unsubscribe;
+    
+    // Set up real-time listener for ClassWall posts
+    let unsubscribePosts = null;
+    
+    if (db) {
+      const postsCollection = collection(db, 'classWall');
+      unsubscribePosts = onSnapshot(postsCollection, (snapshot) => {
+        const postsData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Format timestamp for display
+            timestamp: data.createdAt && data.createdAt.seconds 
+              ? new Date(data.createdAt.seconds * 1000).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true
+                })
+              : data.timestamp || 'Just now'
+          };
+        });
+        
+        // Sort posts by creation time (newest first)
+        postsData.sort((a, b) => {
+          if (a.createdAt && b.createdAt) {
+            return new Date(b.createdAt.seconds * 1000) - new Date(a.createdAt.seconds * 1000);
+          }
+          return 0;
+        });
+        
+        setClassWallPosts(postsData);
+      }, (error) => {
+        console.error('Error listening to posts:', error);
+        // Fallback to manual fetch
+        fetchClassWallPosts();
+      });
+    } else {
+      // Fetch ClassWall posts when component mounts and no database
+      fetchClassWallPosts();
+    }
+    
+    return () => {
+      unsubscribe();
+      if (unsubscribePosts) {
+        unsubscribePosts();
+      }
+    };
   }, []);
 
   // Refresh user data when screen comes into focus
@@ -58,12 +450,6 @@ export default function HomeScreen() {
   const handleSignOut = () => {
     signOut(auth).catch(error => alert(error.message));
   };
-
-  const sectionOptions = [
-    'Section Announcement',
-    'Campus Announcement', 
-    'Class Wall'
-  ];
 
   const menuItems = [
     'Dashboard',
@@ -87,69 +473,279 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Section Dropdown */}
-      <TouchableOpacity 
-        style={styles.dropdown}
-        onPress={() => setShowSectionDropdown(!showSectionDropdown)}
+      {/* ClassWall Posts Preview */}
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#E75C1A']}
+            tintColor="#E75C1A"
+          />
+        }
       >
-        <Text style={styles.dropdownText}>{selectedSection}</Text>
-        <Text style={styles.dropdownArrow}>▼</Text>
-      </TouchableOpacity>
+        
+        {/* What's on your mind section */}
+        <TouchableOpacity 
+          style={styles.whatsOnYourMindContainer}
+          onPress={openNewPostModal}
+        >
+          <View style={styles.whatsOnYourMindContent}>
+            <View style={[
+              styles.userProfileIcon,
+              userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+            ]}>
+              <Text style={styles.userProfileIconText}>
+                {userRole === 'instructor' ? '👨‍🏫' : '👤'}
+              </Text>
+            </View>
+            <Text style={styles.whatsOnYourMindText}>What's on your mind?</Text>
+          </View>
+        </TouchableOpacity>
+        
+        {classWallPosts.map((post) => (
+          <View key={post.id} style={styles.postCard}>
+            <View style={styles.postHeader}>
+              <View style={[
+                styles.profileIcon,
+                post.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
+              ]}>
+                <Text style={styles.profileIconText}>
+                  {post.role === 'Instructor' ? '�‍🏫' : '�👤'}
+                </Text>
+              </View>
+              <View style={styles.postInfo}>
+                <View style={styles.authorRow}>
+                  <Text style={styles.authorName}>{post.author}</Text>
+                  <Text style={[
+                    styles.roleTag,
+                    post.role === 'Instructor' ? styles.instructorTag : styles.studentTag
+                  ]}>
+                    {post.role}
+                  </Text>
+                </View>
+                <Text style={styles.timestamp}>{post.timestamp}</Text>
+              </View>
+              {isPostOwner(post) && (
+                <TouchableOpacity 
+                  style={styles.postMenuButton}
+                  onPress={() => openPostMenu(post)}
+                >
+                  <Text style={styles.postMenuIcon}>⋯</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            
+            <Text style={styles.postText}>{post.message}</Text>
+            
+            {/* Post Image */}
+            {post.image && (
+              <Image source={{ uri: post.image }} style={styles.postImage} />
+            )}
 
-      {/* Dropdown Options */}
-      {showSectionDropdown && (
-        <View style={styles.dropdownOptions}>
-          {sectionOptions.map((option, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.dropdownOption}
+            {/* Post Files */}
+            {post.files && post.files.length > 0 && (
+              <View style={styles.postFiles}>
+                <Text style={styles.postFilesLabel}>Attachments:</Text>
+                {post.files.slice(0, 2).map((file, index) => (
+                  <View key={index} style={styles.postFileItem}>
+                    <Text style={styles.postFileIcon}>{getFileIcon(file.name)}</Text>
+                    <View style={styles.postFileInfo}>
+                      <Text style={styles.postFileName} numberOfLines={1}>{file.name}</Text>
+                      <Text style={styles.postFileSize}>{formatFileSize(file.size)}</Text>
+                    </View>
+                  </View>
+                ))}
+                {post.files.length > 2 && (
+                  <Text style={styles.moreFilesText}>+{post.files.length - 2} more files</Text>
+                )}
+              </View>
+            )}
+
+            {/* Tagged Friends */}
+            {post.taggedFriends && post.taggedFriends.length > 0 && (
+              <View style={styles.postTaggedFriends}>
+                <Text style={styles.postTaggedText}>
+                  Tagged: {post.taggedFriends.map(friend => friend.name).join(', ')}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.postActions}>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionIcon}>♡</Text>
+                <Text style={styles.actionCount}>{post.likes}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionIcon}>💬</Text>
+                <Text style={styles.actionCount}>{post.comments}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionIcon}>↗</Text>
+                <Text style={styles.actionText}>Share</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+        
+        {classWallPosts.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No posts yet. Be the first to share something!</Text>
+            <TouchableOpacity 
+              style={styles.goToClassWallButton}
+              onPress={() => navigation.navigate('ClassWall')}
+            >
+              <Text style={styles.goToClassWallText}>Go to ClassWall</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* New Post Modal */}
+      <Modal visible={showNewPostModal} transparent={true} animationType="slide">
+        <View style={styles.newPostOverlay}>
+          <View style={styles.newPostModal}>
+            <View style={styles.newPostHeader}>
+              <Text style={styles.newPostTitle}>Create Post</Text>
+              <TouchableOpacity onPress={closeNewPostModal}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.newPostContent}>
+              <View style={styles.newPostAuthor}>
+                <View style={[
+                  styles.profileIcon,
+                  userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+                ]}>
+                  <Text style={styles.profileIconText}>
+                    {userRole === 'instructor' ? '👨‍🏫' : '👤'}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={styles.authorName}>
+                    {currentUser?.displayName || currentUser?.email || 'You'}
+                  </Text>
+                  <Text style={[
+                    styles.roleTag,
+                    userRole === 'instructor' ? styles.instructorTag : styles.studentTag
+                  ]}>
+                    {userRole === 'instructor' ? 'Instructor' : 'Student'}
+                  </Text>
+                </View>
+              </View>
+
+              <TextInput
+                style={styles.newPostTextInput}
+                placeholder="What's on your mind?"
+                placeholderTextColor="#888"
+                multiline={true}
+                value={newPostText}
+                onChangeText={setNewPostText}
+                textAlignVertical="top"
+              />
+
+              {/* Media Preview */}
+              {selectedImages.length > 0 && (
+                <View style={styles.mediaPreview}>
+                  <Text style={styles.mediaPreviewLabel}>Images ({selectedImages.length}):</Text>
+                  {selectedImages.map((image, index) => (
+                    <View key={index} style={styles.mediaPreviewItem}>
+                      <Image source={{ uri: image.uri }} style={styles.previewThumbnail} />
+                      <View style={styles.mediaPreviewInfo}>
+                        <Text style={styles.mediaPreviewText} numberOfLines={1}>{image.name}</Text>
+                        <Text style={styles.mediaPreviewSize}>{formatFileSize(image.size)}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => setSelectedImages(prev => prev.filter((_, i) => i !== index))}
+                        style={styles.removeMediaButtonContainer}
+                      >
+                        <Text style={styles.removeMediaButton}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {selectedFiles.length > 0 && (
+                <View style={styles.mediaPreview}>
+                  <Text style={styles.mediaPreviewLabel}>Files ({selectedFiles.length}):</Text>
+                  {selectedFiles.map((file, index) => (
+                    <View key={index} style={styles.mediaPreviewItem}>
+                      <View style={styles.fileIconContainer}>
+                        <Text style={styles.filePreviewIcon}>{getFileIcon(file.name)}</Text>
+                      </View>
+                      <View style={styles.mediaPreviewInfo}>
+                        <Text style={styles.mediaPreviewText} numberOfLines={1}>{file.name}</Text>
+                        <Text style={styles.mediaPreviewSize}>{formatFileSize(file.size)}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => setSelectedFiles(prev => prev.filter((_, i) => i !== index))}
+                        style={styles.removeMediaButtonContainer}
+                      >
+                        <Text style={styles.removeMediaButton}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.newPostActions}>
+              <View style={styles.mediaButtons}>
+                <TouchableOpacity style={styles.mediaButton} onPress={handleCameraPicker}>
+                  <Text style={styles.mediaButtonIcon}>📷</Text>
+                  <Text style={styles.mediaButtonText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.mediaButton} onPress={handleImagePicker}>
+                  <Text style={styles.mediaButtonIcon}>🖼️</Text>
+                  <Text style={styles.mediaButtonText}>Gallery</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.mediaButton} onPress={handleFilePicker}>
+                  <Text style={styles.mediaButtonIcon}>📎</Text>
+                  <Text style={styles.mediaButtonText}>File</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <TouchableOpacity style={styles.submitPostButton} onPress={submitNewPost}>
+                <Text style={styles.submitPostButtonText}>Post</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Post Menu Modal */}
+      <Modal visible={showPostMenu} transparent={true} animationType="fade">
+        <View style={styles.postMenuOverlay}>
+          <View style={styles.postMenuModal}>
+            <View style={styles.postMenuHeader}>
+              <Text style={styles.postMenuTitle}>Post Options</Text>
+              <TouchableOpacity onPress={closePostMenu}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TouchableOpacity 
+              style={[styles.postMenuOption, styles.deleteOption]} 
               onPress={() => {
-                setSelectedSection(option);
-                setShowSectionDropdown(false);
-                
-                // Navigate to the appropriate screen
-                if (option === 'Section Announcement') {
-                  navigation.navigate('SectionAnnouncement');
-                } else if (option === 'Campus Announcement') {
-                  navigation.navigate('CampusAnnouncement');
-                } else if (option === 'Class Wall') {
-                  navigation.navigate('ClassWall');
-                }
+                Alert.alert(
+                  'Delete Post',
+                  'Are you sure you want to delete this post? This action cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: deletePost }
+                  ]
+                );
               }}
             >
-              <Text style={styles.dropdownOptionText}>{option}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Announcement Card */}
-      <ScrollView style={styles.content}>
-        <View style={styles.announcementCard}>
-          <View style={styles.announcementHeader}>
-            <View style={styles.profileIcon}>
-              <Text style={styles.profileIconText}>👤</Text>
-            </View>
-            <View style={styles.announcementInfo}>
-              <Text style={styles.professorName}>Prof. Cuestas</Text>
-              <Text style={styles.timestamp}>Oct 27, 2025 7:30 AM</Text>
-            </View>
-          </View>
-          <Text style={styles.announcementText}>
-            Hello, good morning! My apologies for this late notice, 
-            I am attending a Zumba workshop. I will be uploading 
-            video lectures soonest. Thank you.
-          </Text>
-          <View style={styles.announcementActions}>
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionIcon}>♡</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionIcon}>💬</Text>
+              <Text style={styles.postMenuOptionIcon}>🗑️</Text>
+              <Text style={[styles.postMenuOptionText, styles.deleteOptionText]}>Delete Post</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+      </Modal>
 
       {/* Side Menu Modal */}
       <Modal
@@ -317,71 +913,219 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#333',
   },
-  dropdown: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  dropdownText: {
-    fontSize: 16,
-    color: '#333',
-  },
-  dropdownArrow: {
-    fontSize: 12,
-    color: '#666',
-  },
-  dropdownOptions: {
-    marginHorizontal: 16,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    marginBottom: 8,
-  },
-  dropdownOption: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  dropdownOptionText: {
-    fontSize: 16,
-    color: '#333',
-  },
   content: {
     flex: 1,
     paddingHorizontal: 16,
   },
-  announcementCard: {
+  whatsOnYourMindContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 20,
+    padding: 16,
     marginBottom: 16,
-    marginHorizontal: 4,
-    elevation: 3,
+    marginTop: 8,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 3,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
-  announcementHeader: {
+  whatsOnYourMindContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userProfileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  userProfileIconText: {
+    color: '#fff',
+    fontSize: 18,
+  },
+  whatsOnYourMindText: {
+    fontSize: 16,
+    color: '#888',
+    flex: 1,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: '#E75C1A',
+    fontWeight: '600',
+  },
+  postCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  postInfo: {
+    flex: 1,
+  },
+  authorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  authorName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    marginRight: 8,
+  },
+  roleTag: {
+    fontSize: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  instructorIcon: {
+    backgroundColor: '#E75C1A',
+  },
+  studentIcon: {
+    backgroundColor: '#4A90E2',
+  },
+  instructorTag: {
+    backgroundColor: '#FFF3E0',
+    color: '#E75C1A',
+  },
+  studentTag: {
+    backgroundColor: '#E3F2FD',
+    color: '#4A90E2',
+  },
+  postText: {
+    fontSize: 14,
+    color: '#444',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  postImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 8,
+    resizeMode: 'cover',
+  },
+  postFiles: {
+    marginBottom: 12,
+  },
+  postFilesLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  postFileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 4,
+  },
+  postFileIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  postFileInfo: {
+    flex: 1,
+  },
+  postFileName: {
+    fontSize: 12,
+    color: '#333',
+    fontWeight: '500',
+  },
+  postFileSize: {
+    fontSize: 10,
+    color: '#666',
+  },
+  moreFilesText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  postTaggedFriends: {
+    marginBottom: 8,
+  },
+  postTaggedText: {
+    fontSize: 12,
+    color: '#4A90E2',
+    fontStyle: 'italic',
+  },
+  postActions: {
+    flexDirection: 'row',
+    gap: 20,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 4,
+  },
+  actionIcon: {
+    fontSize: 16,
+    color: '#888',
+  },
+  actionCount: {
+    fontSize: 12,
+    color: '#888',
+  },
+  actionText: {
+    fontSize: 12,
+    color: '#888',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#888',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  goToClassWallButton: {
+    backgroundColor: '#E75C1A',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  goToClassWallText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   profileIcon: {
     width: 44,
@@ -397,38 +1141,19 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-  announcementInfo: {
-    flex: 1,
-  },
-  professorName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 2,
-  },
   timestamp: {
     fontSize: 13,
     color: '#888',
     marginTop: 2,
   },
-  announcementText: {
-    fontSize: 15,
-    color: '#444',
-    lineHeight: 22,
-    marginBottom: 16,
-    marginTop: 8,
+  postMenuButton: {
+    padding: 8,
+    marginLeft: 8,
   },
-  announcementActions: {
-    flexDirection: 'row',
-    gap: 20,
-    paddingTop: 4,
-  },
-  actionButton: {
-    padding: 6,
-  },
-  actionIcon: {
+  postMenuIcon: {
     fontSize: 20,
     color: '#888',
+    fontWeight: 'bold',
   },
   modalOverlay: {
     flex: 1,
@@ -543,5 +1268,205 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginBottom: 4,
+  },
+  
+  // Post Menu Modal Styles
+  postMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  postMenuModal: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    width: '80%',
+    maxWidth: 300,
+  },
+  postMenuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  postMenuTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButtonText: {
+    fontSize: 18,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  postMenuOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  deleteOption: {
+    borderBottomWidth: 0,
+  },
+  postMenuOptionIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  postMenuOptionText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  deleteOptionText: {
+    color: '#ff4444',
+  },
+  
+  // New Post Modal Styles
+  newPostOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  newPostModal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    minHeight: '60%',
+  },
+  newPostHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  newPostTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  newPostContent: {
+    flex: 1,
+    padding: 16,
+  },
+  newPostAuthor: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  newPostTextInput: {
+    fontSize: 16,
+    color: '#333',
+    minHeight: 100,
+    textAlignVertical: 'top',
+    padding: 0,
+    marginBottom: 16,
+  },
+  mediaPreview: {
+    marginBottom: 16,
+  },
+  mediaPreviewLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  mediaPreviewItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  previewThumbnail: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    marginRight: 12,
+    resizeMode: 'cover',
+  },
+  fileIconContainer: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e0e0e0',
+    borderRadius: 6,
+    marginRight: 12,
+  },
+  filePreviewIcon: {
+    fontSize: 20,
+  },
+  mediaPreviewInfo: {
+    flex: 1,
+  },
+  mediaPreviewText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  mediaPreviewSize: {
+    fontSize: 12,
+    color: '#666',
+  },
+  removeMediaButtonContainer: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  removeMediaButton: {
+    fontSize: 16,
+    color: '#ff4444',
+    fontWeight: 'bold',
+  },
+  newPostActions: {
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    padding: 16,
+  },
+  mediaButtons: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  mediaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    flex: 1,
+    minWidth: 80,
+    justifyContent: 'center',
+  },
+  mediaButtonIcon: {
+    fontSize: 16,
+    marginRight: 6,
+  },
+  mediaButtonText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  submitPostButton: {
+    backgroundColor: '#E75C1A',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  submitPostButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

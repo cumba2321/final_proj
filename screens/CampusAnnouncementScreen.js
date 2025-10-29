@@ -122,17 +122,6 @@ export default function CampusAnnouncementScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.title}>Campus Announcements</Text>
-          {loading ? (
-            <Text style={styles.loadingText}>Loading...</Text>
-          ) : userRole ? (
-            <View style={[styles.roleBadge, userRole === 'instructor' ? styles.instructorBadge : styles.studentBadge]}>
-              <Text style={[styles.roleText, userRole === 'instructor' ? styles.instructorText : styles.studentText]}>
-                {userRole === 'instructor' ? '👨‍🏫 Instructor' : '🎓 Student'}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.loadingText}>No role found</Text>
-          )}
         </View>
         <TouchableOpacity style={styles.filterButton}>
           <Text style={styles.filterIcon}>⚙</Text>
