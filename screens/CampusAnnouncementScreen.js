@@ -1,16 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Button } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Button, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { db } from '../firebase';
-import { collection, addDoc, getDocs } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { collection, addDoc, getDocs, doc, getDoc } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
 
 export default function CampusAnnouncementScreen() {
   const navigation = useNavigation();
   const [announcements, setAnnouncements] = useState([]);
   const [newAnnouncement, setNewAnnouncement] = useState('');
+  const [userRole, setUserRole] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Safety check for db
   const announcementsCollectionRef = db ? collection(db, 'campusAnnouncements') : null;
+
+  // Fetch user role from Firestore
+  const fetchUserRole = async () => {
+    const user = auth.currentUser;
+    console.log('Fetching user role for:', user?.email); // Debug log
+    
+    if (user && db) {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const role = userDoc.data().role;
+          console.log('User role found:', role); // Debug log
+          setUserRole(role);
+        } else {
+          console.log('User document does not exist, creating default...'); // Debug log
+          // If user document doesn't exist, default to student
+          setUserRole('student');
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+        if (error.code === 'permission-denied') {
+          console.log('Permission denied, defaulting to student role');
+          // Default to student role if permission denied
+          setUserRole('student');
+        } else {
+          // For other errors, still default to student
+          setUserRole('student');
+        }
+      }
+    } else {
+      console.log('No user or db available, defaulting to student'); // Debug log
+      setUserRole('student');
+    }
+    setLoading(false);
+  };
 
   const getAnnouncements = async () => {
     if (!announcementsCollectionRef) return;
@@ -23,12 +61,19 @@ export default function CampusAnnouncementScreen() {
   };
 
   useEffect(() => {
+    fetchUserRole();
     getAnnouncements();
   }, []);
 
   const addAnnouncement = async () => {
+    if (userRole !== 'instructor') {
+      Alert.alert('Permission denied', 'Only instructors can post announcements.');
+      return;
+    }
+    
     if (newAnnouncement.trim() === '' || !announcementsCollectionRef) return;
     try {
+      const user = auth.currentUser;
       await addDoc(announcementsCollectionRef, {
         title: newAnnouncement,
         department: 'Admin',
@@ -36,11 +81,14 @@ export default function CampusAnnouncementScreen() {
         priority: 'high',
         message: newAnnouncement,
         category: 'General',
+        authorId: user?.uid,
+        authorEmail: user?.email || 'Instructor'
       });
       setNewAnnouncement('');
       getAnnouncements();
     } catch (error) {
       console.error('Error adding announcement:', error);
+      Alert.alert('Error', 'Failed to post announcement.');
     }
   };
 
@@ -72,7 +120,20 @@ export default function CampusAnnouncementScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Campus Announcements</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.title}>Campus Announcements</Text>
+          {loading ? (
+            <Text style={styles.loadingText}>Loading...</Text>
+          ) : userRole ? (
+            <View style={[styles.roleBadge, userRole === 'instructor' ? styles.instructorBadge : styles.studentBadge]}>
+              <Text style={[styles.roleText, userRole === 'instructor' ? styles.instructorText : styles.studentText]}>
+                {userRole === 'instructor' ? '👨‍🏫 Instructor' : '🎓 Student'}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.loadingText}>No role found</Text>
+          )}
+        </View>
         <TouchableOpacity style={styles.filterButton}>
           <Text style={styles.filterIcon}>⚙</Text>
         </TouchableOpacity>
@@ -146,15 +207,25 @@ export default function CampusAnnouncementScreen() {
           </View>
         ))}
       </ScrollView>
-      <View style={styles.addAnnouncementContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Add new announcement"
-          value={newAnnouncement}
-          onChangeText={setNewAnnouncement}
-        />
-        <Button title="Post" onPress={addAnnouncement} />
+      
+      {/* Add Announcement Section - Only for Instructors */}
+      {userRole === 'instructor' && (
+        <View style={styles.addAnnouncementContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Add new announcement"
+            value={newAnnouncement}
+            onChangeText={setNewAnnouncement}
+          />
+          <Button title="Post" onPress={addAnnouncement} />
         </View>
+      )}
+      
+      {userRole === 'student' && (
+        <View style={styles.infoContainer}>
+          <Text style={styles.infoText}>Only instructors can post announcements</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -172,11 +243,13 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 16,
     backgroundColor: '#fff',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   backButton: {
     padding: 8,
@@ -184,12 +257,43 @@ const styles = StyleSheet.create({
   backIcon: {
     fontSize: 24,
     color: '#333',
-    fontWeight: 'bold',
   },
   title: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
+    marginBottom: 4,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  instructorBadge: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+    borderWidth: 1,
+  },
+  studentBadge: {
+    backgroundColor: '#E8F5E8',
+    borderColor: '#4CAF50',
+    borderWidth: 1,
+  },
+  roleText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  instructorText: {
+    color: '#1976D2',
+  },
+  studentText: {
+    color: '#388E3C',
+  },
+  loadingText: {
+    fontSize: 10,
+    color: '#666',
+    fontStyle: 'italic',
   },
   filterButton: {
     padding: 8,
@@ -315,12 +419,23 @@ const styles = StyleSheet.create({
   addAnnouncementContainer: {
     padding: 16,
     backgroundColor: '#fff',
-},
-input: {
+  },
+  input: {
     height: 40,
-    borderColor: 'gray',
+    borderColor: '#E75C1A',
     borderWidth: 1,
     marginBottom: 10,
     paddingHorizontal: 10,
-},
+    borderRadius: 6,
+  },
+  infoContainer: {
+    padding: 16,
+    backgroundColor: '#f9f9f9',
+    alignItems: 'center',
+  },
+  infoText: {
+    color: '#666',
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
 });

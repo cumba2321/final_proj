@@ -2,18 +2,39 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function HomeScreen() {
   const [showSectionDropdown, setShowSectionDropdown] = useState(false);
   const [showSideMenu, setShowSideMenu] = useState(false);
   const [selectedSection, setSelectedSection] = useState('Section Announcement');
   const [currentUser, setCurrentUser] = useState(null);
+  const [userRole, setUserRole] = useState(null);
   const navigation = useNavigation();
+
+  // Fetch user role from Firestore
+  const fetchUserRole = async (user) => {
+    if (user && db) {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          setUserRole(userDoc.data().role);
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+      }
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
+      if (user) {
+        fetchUserRole(user);
+      } else {
+        setUserRole(null);
+      }
     });
     return unsubscribe;
   }, []);
@@ -25,8 +46,10 @@ export default function HomeScreen() {
       if (user) {
         user.reload().then(() => {
           setCurrentUser({ ...user });
+          fetchUserRole(user);
         }).catch(() => {
           setCurrentUser({ ...user });
+          fetchUserRole(user);
         });
       }
     }, [])
@@ -56,7 +79,9 @@ export default function HomeScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>PATHFIT</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>PATHFIT</Text>
+        </View>
         <TouchableOpacity onPress={() => setShowSideMenu(true)} style={styles.menuButton}>
           <Text style={styles.menuIcon}>☰</Text>
         </TouchableOpacity>
@@ -136,7 +161,16 @@ export default function HomeScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.sideMenu}>
             <View style={styles.sideMenuHeader}>
-              <Text style={styles.sideMenuTitle}>PATHFIT</Text>
+              <View style={styles.sideMenuTitleContainer}>
+                <Text style={styles.sideMenuTitle}>PATHFIT</Text>
+                {userRole && (
+                  <View style={[styles.sideMenuRoleBadge, userRole === 'instructor' ? styles.instructorBadge : styles.studentBadge]}>
+                    <Text style={[styles.sideMenuRoleText, userRole === 'instructor' ? styles.instructorText : styles.studentText]}>
+                      {userRole === 'instructor' ? 'Instructor' : 'Student'}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <TouchableOpacity onPress={() => setShowSideMenu(false)}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
@@ -240,11 +274,41 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     backgroundColor: '#fff',
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#E75C1A',
     letterSpacing: 1,
+    marginRight: 12,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  instructorBadge: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+  },
+  studentBadge: {
+    backgroundColor: '#E8F5E8',
+    borderColor: '#4CAF50',
+  },
+  roleText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  instructorText: {
+    color: '#1976D2',
+  },
+  studentText: {
+    color: '#388E3C',
   },
   menuButton: {
     padding: 8,
@@ -389,6 +453,22 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#E75C1A',
+    marginRight: 8,
+  },
+  sideMenuTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  sideMenuRoleBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  sideMenuRoleText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   closeButton: {
     fontSize: 20,
