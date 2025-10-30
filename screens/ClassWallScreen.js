@@ -26,52 +26,13 @@ export default function ClassWallScreen() {
   const [taggedFriends, setTaggedFriends] = useState([]);
   const [friendSearchText, setFriendSearchText] = useState('');
 
-  // Mock friends data - in real app, this would come from Firebase
-  const mockFriends = [
-    { id: '1', name: 'Maria Santos', avatar: '👩' },
-    { id: '2', name: 'Alex Rivera', avatar: '👨' },
-    { id: '3', name: 'Sarah Johnson', avatar: '👩' },
-    { id: '4', name: 'Mike Chen', avatar: '👨' },
-    { id: '5', name: 'Lisa Rodriguez', avatar: '👩' },
-    { id: '6', name: 'John Davis', avatar: '👨' },
-  ];
-
   // Initialize posts collection reference
   const postsCollectionRef = db ? collection(db, 'classWall') : null;
 
   const getPosts = async () => {
     if (!postsCollectionRef) {
-      console.log('Firebase not initialized, using default posts');
-      // Use default posts if Firebase is not available
-      setPosts([
-        {
-          id: '1',
-          author: 'Maria Santos',
-          role: 'Student',
-          timestamp: 'Oct 27, 2025 3:45 PM',
-          message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
-          files: [
-            { name: 'Lecture_Notes_Ch5.pdf', size: 2048576 },
-            { name: 'Assignment_Template.docx', size: 512000 }
-          ],
-          likes: 3,
-          comments: 5,
-          replies: []
-        },
-        {
-          id: '2',
-          author: 'Alex Rivera',
-          role: 'Student',
-          timestamp: 'Oct 27, 2025 1:20 PM',
-          message: 'Study group for the upcoming exam? We could meet at the library this weekend.',
-          files: [
-            { name: 'Study_Guide.xlsx', size: 1024000 }
-          ],
-          likes: 8,
-          comments: 12,
-          replies: []
-        }
-      ]);
+      console.log('Firebase not initialized, using empty posts');
+      setPosts([]);
       return;
     }
 
@@ -90,22 +51,7 @@ export default function ClassWallScreen() {
       setPosts(postsData);
     } catch (error) {
       console.error("Error fetching posts: ", error);
-      // Fallback to default posts on error
-      setPosts([
-        {
-          id: '1',
-          author: 'Maria Santos',
-          role: 'Student',
-          timestamp: 'Oct 27, 2025 3:45 PM',
-          message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
-          files: [
-            { name: 'Lecture_Notes_Ch5.pdf', size: 2048576 }
-          ],
-          likes: 3,
-          comments: 5,
-          replies: []
-        }
-      ]);
+      setPosts([]);
     }
   };
 
@@ -207,10 +153,8 @@ export default function ClassWallScreen() {
   };
 
   const getFilteredFriends = () => {
-    if (!friendSearchText) return mockFriends;
-    return mockFriends.filter(friend => 
-      friend.name.toLowerCase().includes(friendSearchText.toLowerCase())
-    );
+    // In a real app, this would fetch friends from Firebase
+    return [];
   };
 
   const handlePost = async () => {

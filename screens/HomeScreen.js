@@ -524,42 +524,11 @@ export default function HomeScreen() {
         
         setClassWallPosts(postsData); // Show all posts from Firebase
       } else {
-        // Fallback mock data when Firebase is not available
-        setClassWallPosts([
-          {
-            id: '1',
-            author: 'Maria Santos',
-            role: 'Student',
-            timestamp: 'Oct 27, 2025 3:45 PM',
-            message: 'Does anyone have notes from yesterday\'s lecture? I missed the second half due to a family emergency.',
-            likes: 3,
-            comments: 5,
-          },
-          {
-            id: '2',
-            author: 'Alex Rivera',
-            role: 'Student',
-            timestamp: 'Oct 27, 2025 1:20 PM',
-            message: 'Study group for the upcoming exam? We could meet at the library this weekend.',
-            likes: 8,
-            comments: 12,
-          }
-        ]);
+        setClassWallPosts([]);
       }
     } catch (error) {
       console.error('Error fetching ClassWall posts:', error);
-      // Fallback data on error
-      setClassWallPosts([
-        {
-          id: '1',
-          author: 'Maria Santos',
-          role: 'Student',
-          timestamp: 'Oct 27, 2025 3:45 PM',
-          message: 'Does anyone have notes from yesterday\'s lecture?',
-          likes: 3,
-          comments: 5,
-        }
-      ]);
+      setClassWallPosts([]);
     }
   };
 
@@ -712,6 +681,7 @@ export default function HomeScreen() {
 
   const menuItems = [
     'Dashboard',
+    'PATHclass',
     'Section Task',
     'Section Announcement',
     'Campus Announcement',
@@ -1147,6 +1117,9 @@ export default function HomeScreen() {
                     
                     // Navigate based on menu item
                     switch(item) {
+                      case 'PATHclass':
+                        navigation.navigate('PATHclass');
+                        break;
                       case 'Section Task':
                         navigation.navigate('Classwork');
                         break;
