@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Image, Alert, Modal, FlatList } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { collection, addDoc, getDocs } from 'firebase/firestore';
+import { collection, addDoc, getDocs, doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
 // Import Firebase with error handling
 let db = null;
+let auth = null;
 try {
   const firebase = require('../firebase');
   db = firebase.db;
+  auth = firebase.auth;
 } catch (error) {
   console.log('Firebase not available:', error);
 }
@@ -25,9 +28,25 @@ export default function ClassWallScreen() {
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
   const [taggedFriends, setTaggedFriends] = useState([]);
   const [friendSearchText, setFriendSearchText] = useState('');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userRole, setUserRole] = useState(null);
 
   // Initialize posts collection reference
   const postsCollectionRef = db ? collection(db, 'classWall') : null;
+
+  // Fetch user role from Firestore
+  const fetchUserRole = async (user) => {
+    if (user && db) {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          setUserRole(userDoc.data().role);
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+      }
+    }
+  };
 
   const getPosts = async () => {
     if (!postsCollectionRef) {
@@ -54,6 +73,21 @@ export default function ClassWallScreen() {
       setPosts([]);
     }
   };
+
+  useEffect(() => {
+    if (auth) {
+      const unsubscribe = onAuthStateChanged(auth, (user) => {
+        setCurrentUser(user);
+        if (user) {
+          fetchUserRole(user);
+        } else {
+          setUserRole(null);
+        }
+      });
+      
+      return unsubscribe;
+    }
+  }, []);
 
   useEffect(() => {
     getPosts();
@@ -173,8 +207,8 @@ export default function ClassWallScreen() {
       });
 
       const newPostData = {
-        author: 'You',
-        role: 'Student',
+        author: currentUser?.displayName || currentUser?.email || 'You',
+        role: userRole || 'Student',
         timestamp: formattedTime,
         message: newPost.trim(),
         image: selectedImage,
@@ -209,8 +243,8 @@ export default function ClassWallScreen() {
       try {
         // Save to Firebase
         const docRef = await addDoc(postsCollectionRef, {
-          author: 'You',
-          role: 'Student',
+          author: currentUser?.displayName || currentUser?.email || 'You',
+          role: userRole || 'Student',
           timestamp: formattedTime,
           message: originalPost,
           image: originalImage,
@@ -219,7 +253,8 @@ export default function ClassWallScreen() {
           likes: 0,
           comments: 0,
           replies: [],
-          createdAt: currentTime
+          createdAt: currentTime,
+          userId: currentUser?.uid
         });
 
         // Update the local post with the real Firebase ID
@@ -254,8 +289,13 @@ export default function ClassWallScreen() {
       {/* New Post Section */}
       <View style={styles.newPostSection}>
         <View style={styles.newPostHeader}>
-          <View style={styles.userIcon}>
-            <Text style={styles.userIconText}>👤</Text>
+          <View style={[
+            styles.userIcon,
+            userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+          ]}>
+            <Text style={styles.userIconText}>
+              {userRole === 'instructor' ? '👨‍🏫' : '👤'}
+            </Text>
           </View>
           <TouchableOpacity 
             style={styles.whatsOnMindButton}
@@ -438,10 +478,14 @@ export default function ClassWallScreen() {
             {/* User Info */}
             <View style={styles.createPostUserInfo}>
               <View style={styles.createPostUserIcon}>
-                <Text style={styles.createPostUserIconText}>👤</Text>
+                <Text style={styles.createPostUserIconText}>
+                  {userRole === 'instructor' ? '�‍🏫' : '�👤'}
+                </Text>
               </View>
               <View>
-                <Text style={styles.createPostUserName}>You</Text>
+                <Text style={styles.createPostUserName}>
+                  {currentUser?.displayName || currentUser?.email || 'You'}
+                </Text>
                 <TouchableOpacity style={styles.privacyButton}>
                   <Text style={styles.privacyButtonText}>🌐 Public ▼</Text>
                 </TouchableOpacity>
@@ -588,6 +632,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
+  },
+  instructorIcon: {
+    backgroundColor: '#E75C1A',
+  },
+  studentIcon: {
+    backgroundColor: '#4A90E2',
   },
   userIconText: {
     color: '#fff',
