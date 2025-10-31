@@ -1,53 +1,127 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Modal, Image } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Modal, Alert, RefreshControl } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { db, auth } from '../firebase';
+import { collection, addDoc, getDocs, doc, getDoc, query, where, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-
-// Import Firebase with error handling
-let db = null;
-let auth = null;
-try {
-  const firebase = require('../firebase');
-  db = firebase.db;
-  auth = firebase.auth;
-} catch (error) {
-  console.log('Firebase not available:', error);
-}
 
 export default function SectionAnnouncementScreen() {
   const navigation = useNavigation();
-  const route = useRoute();
-  const { classInfo, userRole: passedUserRole } = route.params || {};
-  
+  const [rawAnnouncements, setRawAnnouncements] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
-  const [userRole, setUserRole] = useState(passedUserRole || null);
-  const [announcements, setAnnouncements] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [userRole, setUserRole] = useState(null);
+  const [userClasses, setUserClasses] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState(null);
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
   
-  // Create Announcement Modal State
+  // Create announcement state
   const [newAnnouncement, setNewAnnouncement] = useState({
     title: '',
     message: '',
-    priority: 'normal',
-    links: [],
-    attachedFiles: [],
-    attachedImages: []
+    priority: 'medium',
+    targetType: 'campus',
+    targetClassId: null,
+    targetClassName: '',
+    targetSection: null
   });
+  
+  const [showTargetModal, setShowTargetModal] = useState(false);
+  const [selectedTarget, setSelectedTarget] = useState('campus');
+  const [selectedSection, setSelectedSection] = useState(null);
+  const [selectedClass, setSelectedClass] = useState(null);
 
-  // Initialize announcements collection reference for the specific class
-  const announcementsCollectionRef = db && classInfo?.id ? collection(db, 'classes', classInfo.id, 'announcements') : null;
+  // Safety check for db
+  const announcementsCollectionRef = db ? collection(db, 'sectionAnnouncements') : null;
 
-  // Debug logging
+  // Filter announcements based on user's classes using useMemo to prevent infinite loops
+  const announcements = useMemo(() => {
+    if (!rawAnnouncements.length) return [];
+    
+    const filteredAnnouncements = rawAnnouncements.filter(announcement => {
+      // Campus announcements are visible to everyone
+      if (announcement.targetType === 'campus') {
+        return true;
+      }
+      
+      // Section-specific announcements are only visible to users in that class/section
+      if (announcement.targetType === 'section') {
+        // Check if user is in the target class
+        return userClasses.some(userClass => 
+          userClass.id === announcement.targetClassId
+        );
+      }
+      
+      // Default: show the announcement
+      return true;
+    });
+    
+    console.log('🔍 Filtering announcements:', rawAnnouncements.length, '→', filteredAnnouncements.length);
+    return filteredAnnouncements;
+  }, [rawAnnouncements, userClasses]);
+
+  // Fetch user authentication and role
   useEffect(() => {
-    console.log('SectionAnnouncementScreen - ClassInfo:', classInfo);
-    console.log('SectionAnnouncementScreen - CurrentUser:', currentUser?.uid);
-    console.log('SectionAnnouncementScreen - UserRole:', userRole);
-    console.log('SectionAnnouncementScreen - Collection ref exists:', !!announcementsCollectionRef);
-  }, [classInfo, currentUser, userRole, announcementsCollectionRef]);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        const role = await fetchUserRole(user);
+        if (role === 'instructor') {
+          await fetchUserClasses(user);
+        } else {
+          await fetchUserEnrolledClasses(user);
+        }
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Set up real-time listener for announcements
+  useEffect(() => {
+    // Only set up listener if user is logged in and has role
+    if (!currentUser || !userRole || !announcementsCollectionRef) return;
+
+    console.log('🔴 Setting up real-time listener for announcements');
+    
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(announcementsCollectionRef, (snapshot) => {
+      console.log('🔥 Real-time update received at:', new Date().toLocaleTimeString());
+      setIsAutoRefreshing(true);
+      setRefreshCount(prev => prev + 1);
+      setLastRefreshTime(new Date());
+      
+      try {
+        const fetchedAnnouncements = snapshot.docs.map((doc) => ({ 
+          ...doc.data(), 
+          id: doc.id 
+        }));
+        
+        console.log('📨 Real-time announcements received:', fetchedAnnouncements.length);
+        
+        // Sort by timestamp (newest first)
+        fetchedAnnouncements.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        setRawAnnouncements(fetchedAnnouncements);
+        
+        // Hide refresh indicator after a short delay
+        setTimeout(() => setIsAutoRefreshing(false), 1000);
+        
+      } catch (error) {
+        console.error('❌ Error processing real-time update:', error);
+        setIsAutoRefreshing(false);
+      }
+    }, (error) => {
+      console.error('❌ Real-time listener error:', error);
+      setIsAutoRefreshing(false);
+    });
+    
+    // Cleanup listener when component unmounts
+    return () => {
+      console.log('🔴 Cleaning up real-time listener');
+      unsubscribe();
+    };
+  }, [currentUser?.uid, userRole]); // Only depend on user ID and role to avoid loops
 
   // Fetch user role from Firestore
   const fetchUserRole = async (user) => {
@@ -55,245 +129,109 @@ export default function SectionAnnouncementScreen() {
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          setUserRole(userDoc.data().role);
+          const role = userDoc.data().role;
+          setUserRole(role);
+          return role;
+        } else {
+          setUserRole('student');
+          return 'student';
         }
       } catch (error) {
         console.error('Error fetching user role:', error);
+        setUserRole('student');
+        return 'student';
+      }
+    }
+    return 'student';
+  };
+
+  // Fetch classes where user is instructor
+  const fetchUserClasses = async (user) => {
+    if (user && db) {
+      try {
+        const classesCollection = collection(db, 'classes');
+        const q = query(classesCollection, where('createdBy', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+        const classes = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setUserClasses(classes);
+        // Refresh announcements after classes are loaded
+        setTimeout(() => getAnnouncements(), 100);
+      } catch (error) {
+        console.error('Error fetching user classes:', error);
+      }
+    }
+  };
+
+  // Fetch classes where user is enrolled (for students)
+  const fetchUserEnrolledClasses = async (user) => {
+    if (user && db) {
+      try {
+        const classesCollection = collection(db, 'classes');
+        const q = query(classesCollection, where('students', 'array-contains', user.uid));
+        const querySnapshot = await getDocs(q);
+        const classes = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setUserClasses(classes);
+        // Refresh announcements after classes are loaded
+        setTimeout(() => getAnnouncements(), 100);
+      } catch (error) {
+        console.error('Error fetching enrolled classes:', error);
       }
     }
   };
 
   const getAnnouncements = async () => {
-    console.log('getAnnouncements called with:', {
-      announcementsCollectionRef: !!announcementsCollectionRef,
-      classInfo: classInfo?.id,
-      currentUser: currentUser?.uid,
-      userRole
-    });
-
-    if (!announcementsCollectionRef || !classInfo) {
-      console.log('Firebase not initialized or no class selected, using empty announcements');
-      setAnnouncements([]);
-      return;
-    }
-
-    if (!currentUser) {
-      console.log('User not authenticated, cannot fetch announcements');
-      return;
-    }
-
+    if (!announcementsCollectionRef) return;
     try {
-      console.log('Attempting to fetch announcements from:', `classes/${classInfo.id}/announcements`);
-      const data = await getDocs(announcementsCollectionRef);
-      console.log('Announcements fetched successfully, count:', data.docs.length);
-      
-      const announcementsData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-      
-      // Sort announcements by creation date (newest first)
-      announcementsData.sort((a, b) => {
-        const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt);
-        const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt);
-        return bDate - aDate;
-      });
-      
-      setAnnouncements(announcementsData);
+      console.log('🔄 Manual refresh triggered at:', new Date().toLocaleTimeString());
+      setRefreshing(true);
+      // The real-time listener will handle the actual data fetching
+      // This is just for manual pull-to-refresh visual feedback
+      setTimeout(() => {
+        setRefreshing(false);
+      }, 500);
     } catch (error) {
-      console.error("Error fetching announcements: ", error);
-      console.error("Error code:", error.code);
-      console.error("Error message:", error.message);
-      
-      if (error.code === 'permission-denied') {
-        Alert.alert(
-          'Permission Error', 
-          'You don\'t have permission to access announcements for this class. Please contact your instructor.'
-        );
-      } else {
-        Alert.alert('Error', 'Failed to load announcements. Please try again later.');
-      }
-      setAnnouncements([]);
+      console.error('Error in manual refresh:', error);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    if (auth) {
-      const unsubscribe = onAuthStateChanged(auth, (user) => {
-        setCurrentUser(user);
-        if (user) {
-          fetchUserRole(user);
-        } else {
-          setUserRole(null);
-        }
-      });
-      
-      return unsubscribe;
+  const onRefresh = () => {
+    console.log('📱 Pull-to-refresh triggered');
+    getAnnouncements();
+  };
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'high': return '#f44336';
+      case 'medium': return '#ff9800';
+      case 'low': return '#4caf50';
+      default: return '#ff9800';
     }
-  }, []);
-
-  useEffect(() => {
-    if (currentUser && classInfo?.id) {
-      getAnnouncements();
-    }
-    requestImagePermissions();
-  }, [currentUser, classInfo]);
-
-  const requestImagePermissions = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Sorry, we need camera roll permissions to add images!');
-    }
-  };
-
-  const pickImage = async () => {
-    try {
-      let result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled) {
-        setNewAnnouncement(prev => ({
-          ...prev,
-          attachedImages: [...prev.attachedImages, result.assets[0]]
-        }));
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick image');
-    }
-  };
-
-  const pickDocument = async () => {
-    try {
-      let result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true,
-        multiple: true,
-      });
-
-      if (!result.canceled && result.assets) {
-        setNewAnnouncement(prev => ({
-          ...prev,
-          attachedFiles: [...prev.attachedFiles, ...result.assets]
-        }));
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick document');
-    }
-  };
-
-  const addLink = () => {
-    Alert.prompt(
-      'Add Link',
-      'Enter the URL you want to attach:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Add',
-          onPress: (url) => {
-            if (url && url.trim()) {
-              setNewAnnouncement(prev => ({
-                ...prev,
-                links: [...prev.links, { url: url.trim(), title: url.trim() }]
-              }));
-            }
-          }
-        }
-      ],
-      'plain-text',
-      '',
-      'url'
-    );
-  };
-
-  const removeImage = (index) => {
-    setNewAnnouncement(prev => ({
-      ...prev,
-      attachedImages: prev.attachedImages.filter((_, i) => i !== index)
-    }));
-  };
-
-  const removeFile = (index) => {
-    setNewAnnouncement(prev => ({
-      ...prev,
-      attachedFiles: prev.attachedFiles.filter((_, i) => i !== index)
-    }));
-  };
-
-  const removeLink = (index) => {
-    setNewAnnouncement(prev => ({
-      ...prev,
-      links: prev.links.filter((_, i) => i !== index)
-    }));
-  };
-
-  const getFileIcon = (fileName) => {
-    const extension = fileName.split('.').pop()?.toLowerCase();
-    switch (extension) {
-      case 'pdf': return '📄';
-      case 'doc':
-      case 'docx': return '📝';
-      case 'xls':
-      case 'xlsx': return '📊';
-      case 'ppt':
-      case 'pptx': return '📺';
-      case 'txt': return '📋';
-      case 'zip':
-      case 'rar': return '🗂️';
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif': return '🖼️';
-      default: return '📎';
-    }
-  };
-
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   const getPriorityIcon = (priority) => {
     switch (priority) {
       case 'high': return '🔴';
       case 'medium': return '🟡';
-      default: return '🟢';
+      case 'low': return '🟢';
+      default: return '🟡';
     }
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'high': return '#ff4757';
-      case 'medium': return '#ffa502';
-      default: return '#2ed573';
-    }
-  };
-
-  const handleCreateAnnouncement = async () => {
-    if (!newAnnouncement.title.trim() || !newAnnouncement.message.trim()) {
-      Alert.alert('Error', 'Please fill in title and message');
+  const addAnnouncement = async () => {
+    if (!newAnnouncement.title.trim() || !newAnnouncement.message.trim() || !announcementsCollectionRef || !currentUser) {
+      Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
-
-    if (!currentUser) {
-      Alert.alert('Error', 'You must be logged in to create announcements');
-      return;
-    }
-
-    if (userRole !== 'instructor') {
-      Alert.alert('Error', 'Only instructors can create announcements');
-      return;
-    }
-
-    setIsLoading(true);
     
-    if (!announcementsCollectionRef) {
-      console.log('Firebase not available, announcement creation failed');
-      Alert.alert('Error', 'Unable to create announcement. Please try again.');
-      setIsLoading(false);
+    if (selectedTarget === 'section' && (!selectedClass || !selectedSection)) {
+      Alert.alert('Error', 'Please select a class and section for section announcements');
       return;
     }
 
@@ -302,16 +240,19 @@ export default function SectionAnnouncementScreen() {
         title: newAnnouncement.title.trim(),
         message: newAnnouncement.message.trim(),
         priority: newAnnouncement.priority,
+        professor: currentUser?.displayName || currentUser?.email || 'Instructor',
+        professorId: currentUser.uid,
+        createdBy: currentUser.uid, // Add this required field
+        timestamp: new Date().toISOString(),
         createdAt: new Date(),
-        createdBy: currentUser?.uid,
-        createdByName: currentUser?.displayName || currentUser?.email || 'Instructor',
-        classId: classInfo?.id,
-        className: classInfo?.name,
-        attachedFiles: newAnnouncement.attachedFiles,
-        attachedImages: newAnnouncement.attachedImages,
-        links: newAnnouncement.links,
         likes: 0,
-        comments: 0
+        comments: 0,
+        targetType: selectedTarget,
+        ...(selectedTarget === 'section' && {
+          targetClassId: selectedClass.id,
+          targetClassName: selectedClass.name,
+          targetSection: selectedSection
+        })
       };
 
       await addDoc(announcementsCollectionRef, announcementData);
@@ -320,65 +261,25 @@ export default function SectionAnnouncementScreen() {
       setNewAnnouncement({
         title: '',
         message: '',
-        priority: 'normal',
-        links: [],
-        attachedFiles: [],
-        attachedImages: []
+        priority: 'medium',
+        targetType: 'campus',
+        targetClassId: null,
+        targetClassName: '',
+        targetSection: null
       });
-      
+      setSelectedTarget('campus');
+      setSelectedClass(null);
+      setSelectedSection(null);
       setShowCreateModal(false);
-      getAnnouncements(); // Refresh the list
-      Alert.alert('Success', 'Announcement created successfully!');
+      
+      const targetMessage = selectedTarget === 'campus' 
+        ? 'Campus announcement posted successfully!'
+        : `Section announcement posted to ${selectedClass?.name} - ${selectedSection}`;
+      Alert.alert('Success', targetMessage);
     } catch (error) {
-      console.error("Error creating announcement: ", error);
-      if (error.code === 'permission-denied') {
-        Alert.alert(
-          'Permission Error', 
-          'You don\'t have permission to create announcements for this class. Please contact your administrator.'
-        );
-      } else {
-        Alert.alert('Error', 'Failed to create announcement. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
+      console.error('Error adding announcement:', error);
+      Alert.alert('Error', 'Failed to post announcement');
     }
-  };
-
-  const handleDeleteAnnouncement = async (announcementId) => {
-    if (!db || !announcementId) return;
-
-    Alert.alert(
-      'Delete Announcement',
-      'Are you sure you want to delete this announcement? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, 'classes', classInfo.id, 'announcements', announcementId));
-              getAnnouncements(); // Refresh the list
-              Alert.alert('Success', 'Announcement deleted successfully');
-            } catch (error) {
-              console.error('Error deleting announcement:', error);
-              Alert.alert('Error', 'Failed to delete announcement');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const formatDate = (timestamp) => {
-    if (!timestamp) return '';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -389,8 +290,15 @@ export default function SectionAnnouncementScreen() {
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.title}>Section Announcements</Text>
-          <Text style={styles.subtitle}>{classInfo?.name || 'Class Announcements'}</Text>
+          <Text style={styles.title}>Announcements</Text>
+          <Text style={styles.subtitle}>
+            Campus & Section Updates • Real-time ({refreshCount})
+            {lastRefreshTime && ` • Updated ${lastRefreshTime.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            })}`}
+            {isAutoRefreshing && ' �'}
+          </Text>
         </View>
         {userRole === 'instructor' && (
           <TouchableOpacity 
@@ -402,15 +310,26 @@ export default function SectionAnnouncementScreen() {
         )}
       </View>
 
-      <ScrollView style={styles.content}>
+      {/* Content */}
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#E75C1A']}
+            tintColor="#E75C1A"
+          />
+        }
+      >
         {announcements.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>�</Text>
+            <Text style={styles.emptyStateIcon}>📢</Text>
             <Text style={styles.emptyStateTitle}>No announcements yet</Text>
             <Text style={styles.emptyStateText}>
               {userRole === 'instructor' 
-                ? 'Create your first announcement to keep students informed!'
-                : 'Your instructor hasn\'t posted any announcements yet.'
+                ? 'Create your first announcement to get started!'
+                : 'No announcements have been posted yet.'
               }
             </Text>
           </View>
@@ -419,82 +338,48 @@ export default function SectionAnnouncementScreen() {
             <View key={announcement.id} style={styles.announcementCard}>
               <View style={styles.announcementHeader}>
                 <View style={styles.announcementTitleRow}>
-                  <View style={styles.priorityIndicator}>
-                    <Text style={styles.priorityIcon}>
-                      {getPriorityIcon(announcement.priority)}
+                  <View style={styles.titleWithPriority}>
+                    <Text style={styles.priorityIcon}>{getPriorityIcon(announcement.priority)}</Text>
+                    <Text style={styles.announcementTitle}>
+                      {announcement.title || 'Announcement'}
                     </Text>
-                    <Text style={styles.announcementTitle}>{announcement.title}</Text>
                   </View>
-                  {userRole === 'instructor' && (
-                    <TouchableOpacity 
-                      style={styles.deleteButton}
-                      onPress={() => handleDeleteAnnouncement(announcement.id)}
-                    >
-                      <Text style={styles.deleteButtonText}>🗑️</Text>
-                    </TouchableOpacity>
-                  )}
+                  <Text style={styles.timestamp}>
+                    {new Date(announcement.timestamp).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit'
+                    })}
+                  </Text>
                 </View>
+                
                 <View style={styles.announcementMetaRow}>
-                  <Text style={styles.announcementAuthor}>
-                    By: {announcement.createdByName}
-                  </Text>
-                  <Text style={styles.announcementDate}>
-                    {formatDate(announcement.createdAt)}
-                  </Text>
+                  <Text style={styles.professorName}>By {announcement.professor}</Text>
+                  <View style={styles.targetIndicator}>
+                    {announcement.targetType === 'campus' ? (
+                      <Text style={[styles.targetBadge, styles.campusBadge]}>🏫 Campus</Text>
+                    ) : (
+                      <Text style={[styles.targetBadge, styles.sectionBadge]}>
+                        📚 {announcement.targetClassName} - {announcement.targetSection}
+                      </Text>
+                    )}
+                  </View>
                 </View>
               </View>
               
-              <Text style={styles.announcementMessage}>{announcement.message}</Text>
-
-              {/* Attachments Display */}
-              {(announcement.attachedImages?.length > 0 || announcement.attachedFiles?.length > 0 || announcement.links?.length > 0) && (
-                <View style={styles.attachmentsSection}>
-                  <Text style={styles.attachmentsLabel}>Attachments:</Text>
-                  
-                  {/* Images */}
-                  {announcement.attachedImages?.map((image, index) => (
-                    <View key={`img-${index}`} style={styles.attachmentItem}>
-                      <Image source={{ uri: image.uri }} style={styles.attachmentImage} />
-                      <Text style={styles.attachmentName} numberOfLines={1}>
-                        {image.fileName || `Image ${index + 1}`}
-                      </Text>
-                    </View>
-                  ))}
-                  
-                  {/* Files */}
-                  {announcement.attachedFiles?.map((file, index) => (
-                    <TouchableOpacity key={`file-${index}`} style={styles.attachmentItem}>
-                      <Text style={styles.attachmentIcon}>{getFileIcon(file.name)}</Text>
-                      <View style={styles.attachmentInfo}>
-                        <Text style={styles.attachmentName} numberOfLines={1}>{file.name}</Text>
-                        <Text style={styles.attachmentSize}>{formatFileSize(file.size)}</Text>
-                      </View>
-                      <Text style={styles.downloadIcon}>⬇️</Text>
-                    </TouchableOpacity>
-                  ))}
-                  
-                  {/* Links */}
-                  {announcement.links?.map((link, index) => (
-                    <TouchableOpacity key={`link-${index}`} style={styles.attachmentItem}>
-                      <Text style={styles.attachmentIcon}>🔗</Text>
-                      <View style={styles.attachmentInfo}>
-                        <Text style={styles.attachmentName} numberOfLines={1}>{link.title}</Text>
-                        <Text style={styles.linkUrl} numberOfLines={1}>{link.url}</Text>
-                      </View>
-                      <Text style={styles.externalIcon}>↗️</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              <Text style={styles.announcementMessage}>
+                {announcement.message}
+              </Text>
               
               <View style={styles.announcementActions}>
                 <TouchableOpacity style={styles.actionButton}>
                   <Text style={styles.actionIcon}>♡</Text>
-                  <Text style={styles.actionCount}>{announcement.likes || 0}</Text>
+                  <Text style={styles.actionCount}>{announcement.likes}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.actionButton}>
                   <Text style={styles.actionIcon}>💬</Text>
-                  <Text style={styles.actionCount}>{announcement.comments || 0}</Text>
+                  <Text style={styles.actionCount}>{announcement.comments}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -503,32 +388,53 @@ export default function SectionAnnouncementScreen() {
       </ScrollView>
 
       {/* Create Announcement Modal */}
-      <Modal visible={showCreateModal} transparent={true} animationType="slide">
+      <Modal
+        visible={showCreateModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCreateModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Create Announcement</Text>
-              <TouchableOpacity onPress={() => setShowCreateModal(false)}>
-                <Text style={styles.modalCloseButton}>✕</Text>
+              <TouchableOpacity onPress={() => {
+                setShowCreateModal(false);
+                setNewAnnouncement({
+                  title: '',
+                  message: '',
+                  priority: 'medium',
+                  targetType: 'campus',
+                  targetClassId: null,
+                  targetClassName: '',
+                  targetSection: null
+                });
+                setSelectedTarget('campus');
+                setSelectedClass(null);
+                setSelectedSection(null);
+              }}>
+                <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView style={styles.modalBody}>
+              {/* Title */}
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Announcement Title *</Text>
+                <Text style={styles.inputLabel}>Title *</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Enter announcement title"
+                  placeholder="Announcement title"
                   value={newAnnouncement.title}
                   onChangeText={(text) => setNewAnnouncement({...newAnnouncement, title: text})}
                 />
               </View>
 
+              {/* Message */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Message *</Text>
                 <TextInput
                   style={[styles.textInput, styles.textArea]}
-                  placeholder="Enter your announcement message"
+                  placeholder="Write your announcement..."
                   multiline
                   numberOfLines={4}
                   value={newAnnouncement.message}
@@ -536,148 +442,209 @@ export default function SectionAnnouncementScreen() {
                 />
               </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Priority Level</Text>
-                <View style={styles.priorityButtons}>
-                  {['normal', 'medium', 'high'].map((priority) => (
+              {/* Priority and Target Row */}
+              <View style={styles.inputRow}>
+                <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                  <Text style={styles.inputLabel}>Priority</Text>
+                  <View style={styles.priorityButtons}>
+                    {['low', 'medium', 'high'].map((priority) => (
+                      <TouchableOpacity
+                        key={priority}
+                        style={[
+                          styles.priorityButton,
+                          newAnnouncement.priority === priority && styles.priorityButtonActive
+                        ]}
+                        onPress={() => setNewAnnouncement({...newAnnouncement, priority})}
+                      >
+                        <Text style={styles.priorityButtonText}>
+                          {getPriorityIcon(priority)} {priority.charAt(0).toUpperCase() + priority.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                  <Text style={styles.inputLabel}>Target</Text>
+                  <View style={styles.targetButtons}>
                     <TouchableOpacity
-                      key={priority}
                       style={[
-                        styles.priorityButton,
-                        newAnnouncement.priority === priority && styles.priorityButtonActive,
-                        { borderColor: getPriorityColor(priority) }
+                        styles.targetButton,
+                        selectedTarget === 'campus' && styles.targetButtonActive
                       ]}
-                      onPress={() => setNewAnnouncement({...newAnnouncement, priority})}
+                      onPress={() => setSelectedTarget('campus')}
                     >
-                      <Text style={styles.priorityButtonIcon}>{getPriorityIcon(priority)}</Text>
                       <Text style={[
-                        styles.priorityButtonText,
-                        newAnnouncement.priority === priority && { color: getPriorityColor(priority) }
+                        styles.targetButtonText,
+                        selectedTarget === 'campus' && styles.targetButtonTextActive
                       ]}>
-                        {priority.charAt(0).toUpperCase() + priority.slice(1)}
+                        🏫 Campus
                       </Text>
                     </TouchableOpacity>
-                  ))}
+                    <TouchableOpacity
+                      style={[
+                        styles.targetButton,
+                        selectedTarget === 'section' && styles.targetButtonActive
+                      ]}
+                      onPress={() => {
+                        setSelectedTarget('section');
+                        // Automatically open the target selection modal when section is selected
+                        if (userClasses.length > 0) {
+                          // Small delay to show the button press feedback before opening modal
+                          setTimeout(() => {
+                            setShowTargetModal(true);
+                          }, 100);
+                        } else {
+                          Alert.alert(
+                            'No Classes Found',
+                            'You need to create a class first before making section announcements.',
+                            [{ text: 'OK' }]
+                          );
+                          setSelectedTarget('campus'); // Revert to campus if no classes
+                        }
+                      }}
+                    >
+                      <Text style={[
+                        styles.targetButtonText,
+                        selectedTarget === 'section' && styles.targetButtonTextActive
+                      ]}>
+                        📚 Section
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
-              {/* Attachments Section */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Attachments</Text>
-                
-                {/* Attachment Buttons */}
-                <View style={styles.attachmentButtons}>
-                  <TouchableOpacity style={styles.attachmentButton} onPress={pickImage}>
-                    <Text style={styles.attachmentButtonIcon}>🖼️</Text>
-                    <Text style={styles.attachmentButtonText}>Images</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.attachmentButton} onPress={pickDocument}>
-                    <Text style={styles.attachmentButtonIcon}>📎</Text>
-                    <Text style={styles.attachmentButtonText}>Files</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity style={styles.attachmentButton} onPress={addLink}>
-                    <Text style={styles.attachmentButtonIcon}>🔗</Text>
-                    <Text style={styles.attachmentButtonText}>Links</Text>
+              {/* Section Selection */}
+              {selectedTarget === 'section' && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Select Class & Section *</Text>
+                  <TouchableOpacity
+                    style={styles.sectionSelector}
+                    onPress={() => setShowTargetModal(true)}
+                  >
+                    <Text style={[
+                      styles.sectionSelectorText,
+                      (!selectedClass || !selectedSection) && styles.placeholderText
+                    ]}>
+                      {selectedClass && selectedSection 
+                        ? `${selectedClass.name} - ${selectedSection}`
+                        : 'Tap to select class and section'
+                      }
+                    </Text>
+                    <Text style={styles.selectorArrow}>›</Text>
                   </TouchableOpacity>
                 </View>
-
-                {/* Attached Images Preview */}
-                {newAnnouncement.attachedImages.length > 0 && (
-                  <View style={styles.attachedItemsContainer}>
-                    <Text style={styles.attachedItemsLabel}>Attached Images:</Text>
-                    {newAnnouncement.attachedImages.map((image, index) => (
-                      <View key={index} style={styles.attachedItem}>
-                        <Image source={{ uri: image.uri }} style={styles.previewImage} />
-                        <View style={styles.attachedItemInfo}>
-                          <Text style={styles.attachedItemName}>
-                            {image.fileName || `Image ${index + 1}`}
-                          </Text>
-                        </View>
-                        <TouchableOpacity 
-                          style={styles.removeButton}
-                          onPress={() => removeImage(index)}
-                        >
-                          <Text style={styles.removeButtonText}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Attached Files Preview */}
-                {newAnnouncement.attachedFiles.length > 0 && (
-                  <View style={styles.attachedItemsContainer}>
-                    <Text style={styles.attachedItemsLabel}>Attached Files:</Text>
-                    {newAnnouncement.attachedFiles.map((file, index) => (
-                      <View key={index} style={styles.attachedItem}>
-                        <Text style={styles.attachedFileIcon}>{getFileIcon(file.name)}</Text>
-                        <View style={styles.attachedItemInfo}>
-                          <Text style={styles.attachedItemName} numberOfLines={1}>
-                            {file.name}
-                          </Text>
-                          <Text style={styles.attachedItemSize}>
-                            {formatFileSize(file.size)}
-                          </Text>
-                        </View>
-                        <TouchableOpacity 
-                          style={styles.removeButton}
-                          onPress={() => removeFile(index)}
-                        >
-                          <Text style={styles.removeButtonText}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Attached Links Preview */}
-                {newAnnouncement.links.length > 0 && (
-                  <View style={styles.attachedItemsContainer}>
-                    <Text style={styles.attachedItemsLabel}>Attached Links:</Text>
-                    {newAnnouncement.links.map((link, index) => (
-                      <View key={index} style={styles.attachedItem}>
-                        <Text style={styles.attachedFileIcon}>🔗</Text>
-                        <View style={styles.attachedItemInfo}>
-                          <Text style={styles.attachedItemName} numberOfLines={1}>
-                            {link.title}
-                          </Text>
-                          <Text style={styles.attachedItemSize} numberOfLines={1}>
-                            {link.url}
-                          </Text>
-                        </View>
-                        <TouchableOpacity 
-                          style={styles.removeButton}
-                          onPress={() => removeLink(index)}
-                        >
-                          <Text style={styles.removeButtonText}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
+              )}
             </ScrollView>
 
             <View style={styles.modalFooter}>
               <TouchableOpacity 
                 style={styles.cancelButton}
-                onPress={() => setShowCreateModal(false)}
+                onPress={() => {
+                  setShowCreateModal(false);
+                  setNewAnnouncement({
+                    title: '',
+                    message: '',
+                    priority: 'medium',
+                    targetType: 'campus',
+                    targetClassId: null,
+                    targetClassName: '',
+                    targetSection: null
+                  });
+                  setSelectedTarget('campus');
+                  setSelectedClass(null);
+                  setSelectedSection(null);
+                }}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
               <TouchableOpacity 
-                style={[styles.createButton, isLoading && styles.createButtonDisabled]}
-                onPress={handleCreateAnnouncement}
-                disabled={isLoading}
+                style={[
+                  styles.createButton,
+                  (!newAnnouncement.title.trim() || !newAnnouncement.message.trim() || 
+                   (selectedTarget === 'section' && (!selectedClass || !selectedSection))) 
+                    && styles.createButtonDisabled
+                ]}
+                onPress={addAnnouncement}
+                disabled={!newAnnouncement.title.trim() || !newAnnouncement.message.trim() || 
+                         (selectedTarget === 'section' && (!selectedClass || !selectedSection))}
               >
                 <Text style={styles.createButtonText}>
-                  {isLoading ? 'Posting...' : 'Post Announcement'}
+                  {selectedTarget === 'campus' ? 'Post to Campus' : 'Post to Section'}
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Class & Section Selection Modal */}
+      <Modal
+        visible={showTargetModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTargetModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Class & Section</Text>
+              <TouchableOpacity onPress={() => setShowTargetModal(false)}>
+                <Text style={styles.closeButton}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody}>
+              {userClasses.map((classItem) => (
+                <View key={classItem.id} style={styles.classItem}>
+                  <Text style={styles.className}>{classItem.name}</Text>
+                  <Text style={styles.classSubject}>{classItem.subject}</Text>
+                  
+                  <View style={styles.sectionButtons}>
+                    {/* Show the actual section from the class */}
+                    <TouchableOpacity
+                      style={[
+                        styles.sectionButton,
+                        selectedClass?.id === classItem.id && selectedSection === classItem.section && styles.sectionButtonActive
+                      ]}
+                      onPress={() => {
+                        setSelectedClass(classItem);
+                        setSelectedSection(classItem.section);
+                        setShowTargetModal(false);
+                      }}
+                    >
+                      <Text style={[
+                        styles.sectionButtonText,
+                        selectedClass?.id === classItem.id && selectedSection === classItem.section && styles.sectionButtonTextActive
+                      ]}>
+                        {classItem.section}
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    {/* Add "All Sections" option for the class */}
+                    <TouchableOpacity
+                      style={[
+                        styles.sectionButton,
+                        selectedClass?.id === classItem.id && selectedSection === 'All Sections' && styles.sectionButtonActive
+                      ]}
+                      onPress={() => {
+                        setSelectedClass(classItem);
+                        setSelectedSection('All Sections');
+                        setShowTargetModal(false);
+                      }}
+                    >
+                      <Text style={[
+                        styles.sectionButtonText,
+                        selectedClass?.id === classItem.id && selectedSection === 'All Sections' && styles.sectionButtonTextActive
+                      ]}>
+                        All Sections
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -712,14 +679,17 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: 'bold',
   },
-  headerTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+  },
+  placeholder: {
+    width: 40,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
   },
   subtitle: {
     fontSize: 12,
@@ -739,19 +709,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
   emptyState: {
-    alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
     paddingVertical: 60,
-    paddingHorizontal: 20,
   },
   emptyStateIcon: {
-    fontSize: 48,
+    fontSize: 64,
     marginBottom: 16,
   },
   emptyStateTitle: {
@@ -759,7 +724,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     marginBottom: 8,
-    textAlign: 'center',
   },
   emptyStateText: {
     fontSize: 14,
@@ -767,343 +731,395 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  assignmentCard: {
+  content: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  announcementCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    elevation: 2,
+    padding: 20,
+    marginBottom: 16,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 4,
   },
-  assignmentHeader: {
+  announcementHeader: {
     marginBottom: 12,
   },
-  assignmentTitleRow: {
+  announcementTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 8,
   },
-  assignmentTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  titleWithPriority: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  priorityIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  announcementTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
     flex: 1,
   },
-  assignmentPoints: {
-    fontSize: 14,
-    color: '#E75C1A',
-    fontWeight: 'bold',
-    marginLeft: 12,
-  },
-  assignmentMetaRow: {
+  announcementMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  assignmentDueDate: {
+  announcementMessage: {
     fontSize: 14,
-    color: '#666',
-  },
-  overdue: {
-    color: '#f44336',
-    fontWeight: 'bold',
-  },
-  deleteButton: {
-    padding: 4,
-  },
-  deleteButtonText: {
-    fontSize: 16,
-  },
-  assignmentDescription: {
-    fontSize: 14,
-    color: '#444',
+    color: '#333',
     lineHeight: 20,
     marginBottom: 12,
   },
-  instructionsSection: {
-    marginBottom: 12,
+  profileIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E75C1A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  instructionsLabel: {
-    fontSize: 14,
+  profileIconText: {
+    color: '#fff',
+    fontSize: 20,
     fontWeight: 'bold',
+  },
+  announcementInfo: {
+    flex: 1,
+  },
+  professorName: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
+    marginBottom: 2,
+  },
+  timestamp: {
+    fontSize: 13,
+    color: '#888',
+  },
+  announcementText: {
+    fontSize: 15,
+    color: '#444',
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  announcementActions: {
+    flexDirection: 'row',
+    gap: 20,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 6,
+  },
+  actionIcon: {
+    fontSize: 18,
+    color: '#888',
+  },
+  actionCount: {
+    fontSize: 14,
+    color: '#888',
+  },
+  addAnnouncementContainer: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  targetSelectionContainer: {
+    marginBottom: 16,
+  },
+  targetLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  targetButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  targetButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#f8f8f8',
+    alignItems: 'center',
+  },
+  targetButtonActive: {
+    backgroundColor: '#E75C1A',
+    borderColor: '#E75C1A',
+  },
+  targetButtonText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  targetButtonTextActive: {
+    color: '#fff',
+  },
+  sectionSelectionContainer: {
+    marginBottom: 16,
+  },
+  sectionSelector: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#f8f8f8',
+  },
+  sectionSelectorLabel: {
+    fontSize: 14,
+    color: '#666',
     marginBottom: 4,
   },
-  instructionsText: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 18,
+  sectionSelectorValue: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
   },
-  assignmentActions: {
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 12,
+  input: {
+    borderColor: '#ddd',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+    marginBottom: 16,
+    textAlignVertical: 'top',
   },
-  submitButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+  postButton: {
+    backgroundColor: '#E75C1A',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
     alignItems: 'center',
   },
-  submitButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
+  postButtonDisabled: {
+    backgroundColor: '#ccc',
   },
-  viewSubmissionsButton: {
-    backgroundColor: '#2196F3',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  viewSubmissionsButtonText: {
+  postButtonText: {
     color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  targetIndicator: {
+    marginTop: 4,
+  },
+  targetBadge: {
+    fontSize: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  campusBadge: {
+    backgroundColor: '#e3f2fd',
+    color: '#1976d2',
+  },
+  sectionBadge: {
+    backgroundColor: '#f3e5f5',
+    color: '#7b1fa2',
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    alignItems: 'center',
+    padding: 20,
   },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 12,
+    width: '100%',
     maxHeight: '80%',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#e0e0e0',
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: '#333',
   },
-  modalCloseButton: {
+  closeButton: {
     fontSize: 20,
     color: '#666',
     padding: 4,
   },
   modalBody: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    padding: 20,
     maxHeight: 400,
   },
   inputGroup: {
     marginBottom: 16,
   },
-  inputRow: {
-    flexDirection: 'row',
-  },
   inputLabel: {
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '500',
     color: '#333',
     marginBottom: 8,
   },
   textInput: {
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    borderRadius: 4,
+    padding: 12,
+    fontSize: 16,
     color: '#333',
+    backgroundColor: '#fff',
   },
   textArea: {
     height: 80,
     textAlignVertical: 'top',
   },
+  inputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  priorityButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  priorityButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#f8f8f8',
+    alignItems: 'center',
+  },
+  priorityButtonActive: {
+    backgroundColor: '#E75C1A',
+    borderColor: '#E75C1A',
+  },
+  priorityButtonText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  sectionSelector: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    padding: 12,
+    backgroundColor: '#f8f8f8',
+  },
+  sectionSelectorText: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+  },
+  placeholderText: {
+    color: '#999',
+  },
+  selectorArrow: {
+    fontSize: 16,
+    color: '#999',
+  },
   modalFooter: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    justifyContent: 'flex-end',
+    borderTopColor: '#e0e0e0',
+    gap: 12,
   },
   cancelButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginRight: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#f8f8f8',
   },
   cancelButtonText: {
-    color: '#666',
-    fontWeight: 'bold',
     fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   createButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 4,
     backgroundColor: '#E75C1A',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
+    flex: 1,
+    alignItems: 'center',
   },
   createButtonDisabled: {
     backgroundColor: '#ccc',
-    opacity: 0.6,
   },
   createButtonText: {
+    fontSize: 14,
     color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
+    fontWeight: '600',
   },
-  
-  // Attachments Styles
-  attachmentsSection: {
-    marginBottom: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 12,
+  classItem: {
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
-  attachmentsLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
+  className: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#333',
-    marginBottom: 8,
-  },
-  attachmentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-  },
-  attachmentImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 6,
-    marginRight: 12,
-    resizeMode: 'cover',
-  },
-  attachmentIcon: {
-    fontSize: 20,
-    marginRight: 12,
-    textAlign: 'center',
-    width: 24,
-  },
-  attachmentInfo: {
-    flex: 1,
-  },
-  attachmentName: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  attachmentSize: {
-    fontSize: 12,
-    color: '#666',
-  },
-  linkUrl: {
-    fontSize: 12,
-    color: '#4A90E2',
-    fontStyle: 'italic',
-  },
-  downloadIcon: {
-    fontSize: 14,
-    marginLeft: 8,
-  },
-  externalIcon: {
-    fontSize: 14,
-    marginLeft: 8,
-  },
-  
-  // Attachment Modal Styles
-  attachmentButtons: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    justifyContent: 'space-around',
-  },
-  attachmentButton: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#f0f2f5',
-    borderRadius: 8,
-    minWidth: 80,
-  },
-  attachmentButtonIcon: {
-    fontSize: 24,
     marginBottom: 4,
   },
-  attachmentButtonText: {
-    fontSize: 12,
-    color: '#333',
-    fontWeight: '500',
-  },
-  attachedItemsContainer: {
-    marginTop: 12,
-  },
-  attachedItemsLabel: {
-    fontSize: 12,
+  classSubject: {
+    fontSize: 14,
     color: '#666',
-    fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  attachedItem: {
+  sectionButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sectionButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 6,
-    padding: 8,
-    marginBottom: 6,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#ddd',
+    backgroundColor: '#f8f8f8',
   },
-  previewImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 4,
-    marginRight: 10,
-    resizeMode: 'cover',
+  sectionButtonActive: {
+    backgroundColor: '#E75C1A',
+    borderColor: '#E75C1A',
   },
-  attachedFileIcon: {
-    fontSize: 16,
-    marginRight: 10,
-    textAlign: 'center',
-    width: 20,
-  },
-  attachedItemInfo: {
-    flex: 1,
-  },
-  attachedItemName: {
-    fontSize: 12,
-    color: '#333',
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  attachedItemSize: {
-    fontSize: 10,
+  sectionButtonText: {
+    fontSize: 14,
     color: '#666',
   },
-  removeButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  removeButtonText: {
-    fontSize: 12,
-    color: '#f44336',
-    fontWeight: 'bold',
+  sectionButtonTextActive: {
+    color: '#fff',
   },
 });

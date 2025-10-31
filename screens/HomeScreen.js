@@ -687,7 +687,8 @@ export default function HomeScreen() {
     'Campus Announcement',
     'My Events',
     'Attendance',
-    'Progress'
+    'Progress',
+    'Cleanup (Debug)'
   ];
 
   return (
@@ -1131,6 +1132,9 @@ export default function HomeScreen() {
                         break;
                       case 'Progress':
                         navigation.navigate('Progress');
+                        break;
+                      case 'Cleanup (Debug)':
+                        navigation.navigate('Cleanup');
                         break;
                       case 'Attendance':
                         // Add navigation when attendance screen is created

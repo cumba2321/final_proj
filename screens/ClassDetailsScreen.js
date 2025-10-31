@@ -186,7 +186,13 @@ export default function ClassDetailsScreen() {
                 <Text style={styles.actionArrow}>›</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionCard}>
+              <TouchableOpacity 
+                style={styles.actionCard}
+                onPress={() => navigation.navigate('ManageStudents', {
+                  classInfo: classDetails,
+                  userRole: userRole
+                })}
+              >
                 <View style={styles.actionIcon}>
                   <Text style={styles.actionIconText}>👥</Text>
                 </View>

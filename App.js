@@ -22,6 +22,8 @@ import EditProfileScreen from './screens/EditProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import ProgressScreen from './screens/ProgressScreen';
 import PATHclassScreen from './screens/PATHclassScreen';
+import CleanupScreen from './screens/CleanupScreen';
+import ManageStudentsScreen from './screens/ManageStudentsScreen';
 import { StatusBar } from 'expo-status-bar';
 
 const Stack = createStackNavigator();
@@ -75,6 +77,8 @@ export default function App() {
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Progress" component={ProgressScreen} />
+            <Stack.Screen name="ManageStudents" component={ManageStudentsScreen} />
+            <Stack.Screen name="Cleanup" component={CleanupScreen} />
           </>
         ) : (
           <>
