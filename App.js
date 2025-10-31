@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Image } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -31,13 +32,85 @@ const Tab = createBottomTabNavigator();
 
 function MainTabs() {
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false }}>
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Classwork" component={ClassworkScreen} />
-      <Tab.Screen name="People" component={PeopleScreen} />
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarShowLabel: true, // show text label below icons
+        tabBarActiveTintColor: '#E75C1A', // active text color (orange)
+        tabBarInactiveTintColor: '#cbcbcb',  // inactive text color (gray)
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopWidth: 0,
+          elevation: 5,
+          height: 75,
+        },
+        
+      }}
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={
+                focused
+                  ? require('./assets/HA.png')  // active icon
+                  : require('./assets/HN.png') // inactive icon
+              }
+              style={{
+                width: 24,
+                height: 24,
+              }}
+            />
+          ),
+          
+        }}
+      />
+
+      <Tab.Screen
+        name="Classwork"
+        component={ClassworkScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={
+                focused
+                  ? require('./assets/CA.png')
+                  : require('./assets/CN.png')
+              }
+              style={{
+                width: 24,
+                height: 24,
+              }}
+            />
+          ),
+        }}
+      />
+
+      <Tab.Screen
+        name="People"
+        component={PeopleScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <Image
+              source={
+                focused
+                  ? require('./assets/PA.png')
+                  : require('./assets/PN.png')
+              }
+              style={{
+                width: 24,
+                height: 24,
+              }}
+            />
+          ),
+        }}
+      />
     </Tab.Navigator>
   );
 }
+
 
 export default function App() {
   const [user, setUser] = useState(null);

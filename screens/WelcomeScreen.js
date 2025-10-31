@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ImageBackground, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ImageBackground, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 
 export default function WelcomeScreen() {
@@ -8,11 +8,16 @@ export default function WelcomeScreen() {
     <ImageBackground
       source={require('../assets/splash-icon.png')}
       style={styles.background}
-      imageStyle={{ opacity: 0.3 }}
+      imageStyle={{ opacity: 1 }}
     >
       <View style={styles.overlay} />
       <View style={styles.container}>
-        <Text style={styles.title}>PATHFIT</Text>
+        <Image
+        source={require('../assets/PATHwhite.png')}
+        style={styles.logo}
+        resizeMode='contain'
+        accessibilityLabel="PATHFIT logo" />
+
         <TouchableOpacity
           style={styles.joinButton}
           onPress={() => navigation.navigate('SignUp')}
@@ -35,13 +40,19 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#E75C1A',
-    opacity: 0.85,
+    opacity: 0.90,
   },
   container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
+  },
+  logo: {
+    width: 500,     
+    height: 400,     
+    resizeMode: 'contain', 
+    marginBottom: 40,
   },
   title: {
     fontSize: 36,
@@ -63,13 +74,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   joinText: {
-    color: '#E75C1A',
+    color: '#042175',
     fontWeight: 'bold',
-    fontSize: 16,
+    fontSize: 18,
   },
   loginText: {
     color: '#fff',
-    fontSize: 16,
-    opacity: 0.7,
+    fontSize: 19,
+    fontWeight: 'bold',
+    opacity: 1,
   },
 });

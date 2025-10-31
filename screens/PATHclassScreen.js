@@ -360,7 +360,7 @@ export default function PATHclassScreen() {
 
       {/* Debug Info - Remove this in production */}
       {__DEV__ && (
-        <View style={{ padding: 10, backgroundColor: '#f0f0f0' }}>
+        <View style={{ padding: 10, backgroundColor: '#fff' }}>
           <Text style={{ fontSize: 12 }}>
             Debug: User: {currentUser?.email || 'None'} | Role: {userRole || 'None'} | Classes: {classes.length}
           </Text>
@@ -686,10 +686,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 40,
+    paddingHorizontal: 20,
+    paddingTop: 50,
     paddingBottom: 16,
-    backgroundColor: '#1976D2',
+    backgroundColor: '#E75C1A',
     elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -697,28 +697,34 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   backButton: {
-    padding: 8,
+    padding: 10,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   backButtonText: {
-    fontSize: 20,
+    fontSize: 30,
+    width: 30,
+    height: 22,
+    textAlign: 'center',
     color: '#fff',
+    marginTop: -10,
   },
   title: {
-    fontSize: 20,
+    fontSize: 26,
     fontWeight: '500',
     color: '#fff',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+    marginTop: 6,	
+    marginLeft: 15,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   instructorBadge: {
@@ -728,7 +734,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   roleText: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
   },
@@ -740,7 +746,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#ffeee0',
   },
   classesContainer: {
     flex: 1,
@@ -750,7 +756,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
+    paddingVertical: 200,
   },
   emptyStateIcon: {
     fontSize: 64,
@@ -844,12 +850,12 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 24,
-    right: 24,
+    bottom: 40,
+    right: 40,
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#1976D2',
+    backgroundColor: '#E75C1A',
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 6,
@@ -859,7 +865,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   fabIcon: {
-    fontSize: 24,
+    fontSize: 28,
     color: '#fff',
     fontWeight: 'bold',
   },

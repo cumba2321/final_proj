@@ -696,7 +696,11 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.title}>PATHFIT</Text>
+          <Image
+                  source={require('../assets/PATH.png')}
+                  style={styles.logo}
+                  resizeMode='contain'
+                  accessibilityLabel="PATHFIT logo" />
         </View>
         <TouchableOpacity onPress={() => setShowSideMenu(true)} style={styles.menuButton}>
           <Text style={styles.menuIcon}>☰</Text>
@@ -716,7 +720,7 @@ export default function HomeScreen() {
         }
       >
         
-        {/* What's on your mind section */}
+        {/* “What’s your PATHFit update today?” */}
         <TouchableOpacity 
           style={styles.whatsOnYourMindContainer}
           onPress={openNewPostModal}
@@ -730,7 +734,7 @@ export default function HomeScreen() {
                 {userRole === 'instructor' ? '👨‍🏫' : '👤'}
               </Text>
             </View>
-            <Text style={styles.whatsOnYourMindText}>What's on your mind?</Text>
+            <Text style={styles.whatsOnYourMindText}>“What’s your PATHFit update today?”</Text>
           </View>
         </TouchableOpacity>
         
@@ -807,23 +811,33 @@ export default function HomeScreen() {
                 style={styles.actionButton} 
                 onPress={() => handleLikePost(post)}
               >
-                <Text style={[
-                  styles.actionIcon,
-                  isPostLiked(post) ? styles.likedIcon : null
-                ]}>
-                  {isPostLiked(post) ? '❤️' : '♡'}
-                </Text>
-                <Text style={styles.actionCount}>{post.likes || 0}</Text>
+                 <Image
+                  source={
+                    isPostLiked(post)
+                      ? require('../assets/HTA.png') // active like
+                     : require('../assets/HTI.png')  // normal like
+                 }  
+                style={styles.actionIconImage}
+              />
+              <Text style={styles.actionCount}>{post.likes || 0}</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.actionButton}
                 onPress={() => openCommentModal(post)}
               >
-                <Text style={styles.actionIcon}>💬</Text>
+                <Image
+                  source={require('../assets/COI.png')}
+                  style={styles.actionIconImage}
+
+                />
                 <Text style={styles.actionCount}>{post.comments || 0}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionIcon}>↗</Text>
+               <Image
+                  source={require('../assets/S.png')}
+                  style={styles.actionIconImage}
+
+                />
                 <Text style={styles.actionText}>Share</Text>
               </TouchableOpacity>
             </View>
@@ -879,7 +893,7 @@ export default function HomeScreen() {
 
               <TextInput
                 style={styles.newPostTextInput}
-                placeholder="What's on your mind?"
+                placeholder="“What’s your PATHFit update today?”"
                 placeholderTextColor="#888"
                 multiline={true}
                 value={newPostText}
@@ -1089,7 +1103,11 @@ export default function HomeScreen() {
           <View style={styles.sideMenu}>
             <View style={styles.sideMenuHeader}>
               <View style={styles.sideMenuTitleContainer}>
-                <Text style={styles.sideMenuTitle}>PATHFIT</Text>
+                <Image
+                        source={require('../assets/PATHlow.png')}
+                        style={styles.logo}
+                        resizeMode='contain'
+                        accessibilityLabel="PATHFIT logo" />
                 {userRole && (
                   <View style={[styles.sideMenuRoleBadge, userRole === 'instructor' ? styles.instructorBadge : styles.studentBadge]}>
                     <Text style={[styles.sideMenuRoleText, userRole === 'instructor' ? styles.instructorText : styles.studentText]}>
@@ -1196,8 +1214,9 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#ffeee0',
   },
+ 
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1205,7 +1224,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 40,
     paddingBottom: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#fffdfb',
+  },
+  logo: {
+    width: 100, 
+    height: 100,         
+    resizeMode: 'contain', 
+    marginBottom: -35,
+    marginTop: -15,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1247,8 +1273,9 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   menuIcon: {
-    fontSize: 24,
-    color: '#333',
+    fontSize: 50,
+    color: '#042175',
+    marginTop: 25,
   },
   content: {
     flex: 1,
@@ -1284,10 +1311,15 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
   },
+  userOption: {
+    color: '#fff',
+    fontSize: 18,
+  },
   whatsOnYourMindText: {
     fontSize: 16,
     color: '#888',
     flex: 1,
+    marginLeft: 8,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1331,7 +1363,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   authorName: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '600',
     color: '#333',
     marginRight: 8,
@@ -1359,10 +1391,12 @@ const styles = StyleSheet.create({
     color: '#4A90E2',
   },
   postText: {
-    fontSize: 14,
+    fontSize: 18,
     color: '#444',
     lineHeight: 20,
     marginBottom: 12,
+    marginLeft: 10,
+    marginRight: 10
   },
   postImage: {
     width: '100%',
@@ -1420,10 +1454,12 @@ const styles = StyleSheet.create({
   },
   postActions: {
     flexDirection: 'row',
-    gap: 20,
+    justifyContent: 'space-between',
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    marginLeft: 10,
+    marginRight: 10,
+    borderTopWidth: 2,
+    borderTopColor: '#cbcbcb',
   },
   actionButton: {
     flexDirection: 'row',
@@ -1432,15 +1468,15 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   actionIcon: {
-    fontSize: 16,
+    fontSize: 25,
     color: '#888',
   },
   actionCount: {
-    fontSize: 12,
+    fontSize: 15,
     color: '#888',
   },
   actionText: {
-    fontSize: 12,
+    fontSize: 15,
     color: '#888',
   },
   emptyState: {
@@ -1479,7 +1515,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   timestamp: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#888',
     marginTop: 2,
   },
@@ -1497,13 +1533,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   sideMenu: {
-    width: '80%',
+    position: 'absolute',
+    top: 0,
+    right: 0,   
+    width: '75%',
     height: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: '#ffeee0',
     paddingTop: 40,
+    zIndex: 1000,    
+    elevation: 10, 
+    shadowColor: '#000', 
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   sideMenuHeader: {
     flexDirection: 'row',
+    backgroundColor: '#fff',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -1523,19 +1569,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sideMenuRoleBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingHorizontal: 30,
+    paddingVertical: 6,
+    borderRadius: 20,
     borderWidth: 1,
+    marginTop: 14,
   },
   sideMenuRoleText: {
-    fontSize: 10,
+    fontSize: 15,
     fontWeight: '600',
   },
   closeButton: {
-    fontSize: 20,
+    fontSize: 25,
     color: '#333',
     padding: 4,
+    marginTop: 14,
+    marginRight: 3,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -1543,7 +1592,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     margin: 16,
     padding: 12,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
     borderRadius: 8,
   },
   searchPlaceholder: {
@@ -1555,32 +1604,34 @@ const styles = StyleSheet.create({
   },
   menuItemsContainer: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   menuItem: {
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#fff',
   },
   menuItemText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 18,
+    color: '#042175',
   },
   userSection: {
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    backgroundColor: '#fff',
+    borderTopColor: '#fff',
     padding: 16,
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    marginBottom: 22,
   },
   userIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#333',
+    backgroundColor: '#042175',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -1598,7 +1649,7 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#042175',
     marginBottom: 8,
   },
   userOption: {
@@ -1620,6 +1671,13 @@ const styles = StyleSheet.create({
     width: '80%',
     maxWidth: 300,
   },
+  actionIconImage: {
+    width: 22,
+    height: 22,
+    marginRight: 6,
+    resizeMode: 'contain',
+  },
+  
   postMenuHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1634,7 +1692,7 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   closeButtonText: {
-    fontSize: 18,
+    fontSize: 25,
     color: '#666',
     fontWeight: 'bold',
   },
@@ -1671,16 +1729,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     maxHeight: '90%',
-    minHeight: '60%',
+    minHeight: '55%',
+    marginBottom: 40,
+    marginLeft: 20,
+    marginRight: 20,
   },
   newPostHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomWidth: 2,
+    borderBottomColor: '#042175',
   },
   newPostTitle: {
     fontSize: 18,
@@ -1763,9 +1826,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   newPostActions: {
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopWidth: 2,
+    borderTopColor: '#042175',
     padding: 16,
+    backgroundColor: '#ffeee0',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   mediaButtons: {
     flexDirection: 'row',
