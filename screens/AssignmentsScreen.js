@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Alert, Modal, Image, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 // Import Firebase with error handling
 let db = null;
@@ -27,6 +28,8 @@ export default function AssignmentsScreen() {
   const [assignments, setAssignments] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   
   // Create Assignment Modal State
   const [newAssignment, setNewAssignment] = useState({
@@ -270,6 +273,7 @@ export default function AssignmentsScreen() {
         attachedFiles: [],
         attachedImages: []
       });
+      setSelectedDate(new Date());
       
       setShowCreateModal(false);
       getAssignments(); // Refresh the list
@@ -306,6 +310,34 @@ export default function AssignmentsScreen() {
         }
       ]
     );
+  };
+
+  // Date picker functions
+  const handleDateChange = (event, date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    
+    if (date) {
+      setSelectedDate(date);
+      const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+      setNewAssignment({...newAssignment, dueDate: formattedDate});
+    }
+  };
+
+  const showDatePickerModal = () => {
+    setShowDatePicker(true);
+  };
+
+  const formatDisplayDate = (dateString) => {
+    if (!dateString) return 'Select due date';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
   const formatDate = (dateString) => {
@@ -458,7 +490,20 @@ export default function AssignmentsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Create Assignment</Text>
-              <TouchableOpacity onPress={() => setShowCreateModal(false)}>
+              <TouchableOpacity onPress={() => {
+                setShowCreateModal(false);
+                setSelectedDate(new Date());
+                setNewAssignment({
+                  title: '',
+                  description: '',
+                  dueDate: '',
+                  points: '',
+                  instructions: '',
+                  links: [],
+                  attachedFiles: [],
+                  attachedImages: []
+                });
+              }}>
                 <Text style={styles.modalCloseButton}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -501,12 +546,18 @@ export default function AssignmentsScreen() {
               <View style={styles.inputRow}>
                 <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
                   <Text style={styles.inputLabel}>Due Date *</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="YYYY-MM-DD"
-                    value={newAssignment.dueDate}
-                    onChangeText={(text) => setNewAssignment({...newAssignment, dueDate: text})}
-                  />
+                  <TouchableOpacity
+                    style={[styles.textInput, styles.datePickerButton]}
+                    onPress={showDatePickerModal}
+                  >
+                    <Text style={[
+                      styles.datePickerText,
+                      !newAssignment.dueDate && styles.placeholderText
+                    ]}>
+                      {formatDisplayDate(newAssignment.dueDate)}
+                    </Text>
+                    <Text style={styles.calendarIcon}>📅</Text>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
@@ -623,7 +674,20 @@ export default function AssignmentsScreen() {
             <View style={styles.modalFooter}>
               <TouchableOpacity 
                 style={styles.cancelButton}
-                onPress={() => setShowCreateModal(false)}
+                onPress={() => {
+                  setShowCreateModal(false);
+                  setSelectedDate(new Date());
+                  setNewAssignment({
+                    title: '',
+                    description: '',
+                    dueDate: '',
+                    points: '',
+                    instructions: '',
+                    links: [],
+                    attachedFiles: [],
+                    attachedImages: []
+                  });
+                }}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -641,6 +705,17 @@ export default function AssignmentsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Date Picker */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDateChange}
+          minimumDate={new Date()}
+        />
+      )}
     </View>
   );
 }
@@ -1065,5 +1140,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#f44336',
     fontWeight: 'bold',
+  },
+  datePickerButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  datePickerText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  placeholderText: {
+    color: '#999',
+  },
+  calendarIcon: {
+    fontSize: 16,
+    marginLeft: 8,
   },
 });
