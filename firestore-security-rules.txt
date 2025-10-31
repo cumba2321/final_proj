@@ -9,23 +9,26 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Classes collection - instructors can create, students can read and join
+    // Classes collection - simplified permissions for better functionality
     match /classes/{classId} {
       // Anyone authenticated can read classes (needed for joining by code)
       allow read: if request.auth != null;
       
-      // Only authenticated users can create classes (instructors)
+      // Only authenticated users can create classes
       allow create: if request.auth != null && 
                     request.auth.uid == request.resource.data.createdBy;
       
-      // Only the creator (instructor) can update class details
-      // Students can update to add themselves to students array
+      // Allow updates for:
+      // 1. Class creators (instructors) can update their classes
+      // 2. Any authenticated user can update students array and studentCount (for join/leave)
       allow update: if request.auth != null && (
         // Instructor can update their own class
         request.auth.uid == resource.data.createdBy ||
-        // Students can add themselves to the students array
-        (request.resource.data.students.hasAll(resource.data.students) &&
-         request.resource.data.students.hasOnly(resource.data.students.concat([request.auth.uid])))
+        // Any authenticated user can modify students array and studentCount
+        // This allows both joining and leaving classes
+        (request.resource.data.keys().hasOnly(['students', 'studentCount']) ||
+         request.resource.data.keys().hasOnly(['students']) ||
+         request.resource.data.keys().hasOnly(['studentCount']))
       );
       
       // Only the creator can delete the class

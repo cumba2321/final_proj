@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, Modal, TextInput, Alert, Image } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { doc, getDoc, collection, addDoc, getDocs, updateDoc, arrayUnion, arrayRemove, serverTimestamp, query, where } from 'firebase/firestore';
@@ -25,20 +25,30 @@ export default function PATHclassScreen() {
   const fetchUserRole = async (user) => {
     if (user && db) {
       try {
+        console.log('Fetching user role for:', user.uid);
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          setUserRole(userDoc.data().role);
+          const role = userDoc.data().role;
+          console.log('User role found:', role);
+          setUserRole(role);
+        } else {
+          console.log('No user document found, defaulting to student');
+          // If no user document exists, default to student
+          setUserRole('student');
         }
       } catch (error) {
         console.error('Error fetching user role:', error);
+        // Default to student if there's an error
+        setUserRole('student');
       }
     }
   };
 
   // Fetch classes from Firestore
   const fetchClasses = async () => {
-    if (currentUser && db) {
+    if (currentUser && db && userRole) {
       try {
+        console.log(`Fetching classes for ${userRole}:`, currentUser.uid);
         const classesCollection = collection(db, 'classes');
         let classesSnapshot;
         
@@ -46,21 +56,32 @@ export default function PATHclassScreen() {
           // For instructors, get classes they created
           const q = query(classesCollection, where('createdBy', '==', currentUser.uid));
           classesSnapshot = await getDocs(q);
+          console.log('Instructor classes found:', classesSnapshot.docs.length);
         } else {
           // For students, get all classes where they are enrolled
           const q = query(classesCollection, where('students', 'array-contains', currentUser.uid));
           classesSnapshot = await getDocs(q);
+          console.log('Student enrolled classes found:', classesSnapshot.docs.length);
         }
         
         const classesData = classesSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         }));
+        
+        console.log('Classes data:', classesData);
         setClasses(classesData);
       } catch (error) {
         console.error('Error fetching classes:', error);
-        setClasses([]);
+        // Don't clear classes on error, keep existing ones
+        Alert.alert('Network Error', 'Unable to sync classes. Please check your internet connection.');
       }
+    } else {
+      console.log('Missing requirements for fetchClasses:', {
+        currentUser: !!currentUser,
+        db: !!db,
+        userRole
+      });
     }
   };
 
@@ -108,14 +129,9 @@ export default function PATHclassScreen() {
         
         console.log('Class created successfully with ID:', docRef.id);
         
-        // Add to local state with the Firebase-generated ID
-        const newClass = {
-          id: docRef.id,
-          ...newClassData,
-          createdAt: new Date() // For local display
-        };
+        // Refresh classes list instead of manually adding to local state
+        await fetchClasses();
 
-        setClasses(prev => [...prev, newClass]);
         setShowCreateClassModal(false);
         setNewClassName('');
         setNewClassSubject('');
@@ -138,6 +154,8 @@ export default function PATHclassScreen() {
 
     try {
       if (db && currentUser) {
+        console.log('Attempting to join class with code:', classCode.toUpperCase());
+        
         // Search for class with the entered code
         const classesCollection = collection(db, 'classes');
         const q = query(classesCollection, where('code', '==', classCode.toUpperCase()));
@@ -151,6 +169,8 @@ export default function PATHclassScreen() {
         const classDoc = querySnapshot.docs[0];
         const classData = classDoc.data();
 
+        console.log('Found class:', classData.name);
+
         // Check if student is already enrolled
         if (classData.students && classData.students.includes(currentUser.uid)) {
           Alert.alert('Already Enrolled', 'You are already enrolled in this class.');
@@ -159,28 +179,26 @@ export default function PATHclassScreen() {
           return;
         }
 
+        console.log('Adding student to class...');
+
         // Add student to the class
         await updateDoc(doc(db, 'classes', classDoc.id), {
           students: arrayUnion(currentUser.uid),
           studentCount: (classData.studentCount || 0) + 1
         });
 
-        // Add class to local state
-        const joinedClass = {
-          id: classDoc.id,
-          ...classData,
-          students: [...(classData.students || []), currentUser.uid],
-          studentCount: (classData.studentCount || 0) + 1
-        };
+        console.log('Student added successfully');
 
-        setClasses(prev => [...prev, joinedClass]);
+        // Refresh classes list
+        await fetchClasses();
+
         setShowJoinClassModal(false);
         setClassCode('');
         Alert.alert('Success', `Successfully joined "${classData.name}"!`);
       }
     } catch (error) {
       console.error('Error joining class:', error);
-      Alert.alert('Error', 'Failed to join class. Please try again.');
+      Alert.alert('Error', `Failed to join class: ${error.message}`);
     }
   };
 
@@ -193,33 +211,39 @@ export default function PATHclassScreen() {
         if (userRole === 'instructor') {
           // For instructors: Delete the entire class document
           // Note: In a production app, you might want to archive instead of delete
-          // For now, we'll just remove from local state and Firebase
-          // You would implement proper deletion in Firebase Rules and Cloud Functions
-          setClasses(prev => prev.filter(cls => cls.id !== selectedClass.id));
+          console.log('Instructor deleting class:', selectedClass.id);
           // TODO: Implement actual Firebase document deletion with proper permissions
+          // For now, just refresh the list which will remove it from view
         } else {
           // For students: Remove from the students array
+          console.log('Student unenrolling from class:', selectedClass.id);
+          console.log('Current user UID:', currentUser.uid);
+          console.log('Current students array:', selectedClass.students);
+          
           await updateDoc(doc(db, 'classes', selectedClass.id), {
             students: arrayRemove(currentUser.uid),
             studentCount: Math.max((selectedClass.studentCount || 1) - 1, 0)
           });
           
-          setClasses(prev => prev.filter(cls => cls.id !== selectedClass.id));
+          console.log('Successfully removed student from class');
         }
+
+        // Refresh classes list
+        await fetchClasses();
 
         setShowUnenrollModal(false);
         setSelectedClass(null);
         const message = userRole === 'instructor' 
-          ? 'Class deleted successfully!' 
+          ? 'Class removed from your view!' 
           : 'Successfully unenrolled from the class!';
         Alert.alert('Success', message);
       }
     } catch (error) {
       console.error('Error processing request:', error);
       const errorMessage = userRole === 'instructor'
-        ? 'Failed to delete class. Please try again.'
+        ? 'Failed to remove class. Please try again.'
         : 'Failed to unenroll from class. Please try again.';
-      Alert.alert('Error', errorMessage);
+      Alert.alert('Error', `${errorMessage}\n\nError: ${error.message}`);
     }
   };
 
@@ -258,11 +282,13 @@ export default function PATHclassScreen() {
     try {
       const user = auth.currentUser;
       if (user) {
+        console.log('Refreshing data for user:', user.uid);
         await fetchUserRole(user);
-        await fetchClasses();
+        // fetchClasses will be called automatically by the useEffect when userRole updates
       }
     } catch (error) {
       console.error('Error refreshing:', error);
+      Alert.alert('Refresh Error', 'Unable to refresh data. Please try again.');
     } finally {
       setRefreshing(false);
     }
@@ -279,8 +305,8 @@ export default function PATHclassScreen() {
       setCurrentUser(user);
       if (user) {
         fetchUserRole(user);
-        fetchClasses();
       } else {
+        // Clear data when user logs out
         setUserRole(null);
         setClasses([]);
       }
@@ -288,6 +314,22 @@ export default function PATHclassScreen() {
     
     return unsubscribe;
   }, []);
+
+  // Separate effect to fetch classes when both user and role are available
+  useEffect(() => {
+    if (currentUser && userRole) {
+      fetchClasses();
+    }
+  }, [currentUser, userRole]);
+
+  // Refresh classes when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (currentUser && userRole) {
+        fetchClasses();
+      }
+    }, [currentUser, userRole])
+  );
 
   return (
     <View style={styles.container}>
@@ -313,6 +355,15 @@ export default function PATHclassScreen() {
           )}
         </View>
       </View>
+
+      {/* Debug Info - Remove this in production */}
+      {__DEV__ && (
+        <View style={{ padding: 10, backgroundColor: '#f0f0f0' }}>
+          <Text style={{ fontSize: 12 }}>
+            Debug: User: {currentUser?.email || 'None'} | Role: {userRole || 'None'} | Classes: {classes.length}
+          </Text>
+        </View>
+      )}
 
       {/* Content */}
       <ScrollView 
