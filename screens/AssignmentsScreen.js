@@ -17,37 +17,31 @@ try {
   console.log('Firebase not available:', error);
 }
 
-export default function SectionAnnouncementScreen() {
+export default function AssignmentsScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { classInfo, userRole: passedUserRole } = route.params || {};
   
   const [currentUser, setCurrentUser] = useState(null);
   const [userRole, setUserRole] = useState(passedUserRole || null);
-  const [announcements, setAnnouncements] = useState([]);
+  const [assignments, setAssignments] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   
-  // Create Announcement Modal State
-  const [newAnnouncement, setNewAnnouncement] = useState({
+  // Create Assignment Modal State
+  const [newAssignment, setNewAssignment] = useState({
     title: '',
-    message: '',
-    priority: 'normal',
+    description: '',
+    dueDate: '',
+    points: '',
+    instructions: '',
     links: [],
     attachedFiles: [],
     attachedImages: []
   });
 
-  // Initialize announcements collection reference for the specific class
-  const announcementsCollectionRef = db && classInfo?.id ? collection(db, 'classes', classInfo.id, 'announcements') : null;
-
-  // Debug logging
-  useEffect(() => {
-    console.log('SectionAnnouncementScreen - ClassInfo:', classInfo);
-    console.log('SectionAnnouncementScreen - CurrentUser:', currentUser?.uid);
-    console.log('SectionAnnouncementScreen - UserRole:', userRole);
-    console.log('SectionAnnouncementScreen - Collection ref exists:', !!announcementsCollectionRef);
-  }, [classInfo, currentUser, userRole, announcementsCollectionRef]);
+  // Initialize assignments collection reference for the specific class
+  const assignmentsCollectionRef = db && classInfo ? collection(db, 'classes', classInfo.id, 'assignments') : null;
 
   // Fetch user role from Firestore
   const fetchUserRole = async (user) => {
@@ -63,54 +57,29 @@ export default function SectionAnnouncementScreen() {
     }
   };
 
-  const getAnnouncements = async () => {
-    console.log('getAnnouncements called with:', {
-      announcementsCollectionRef: !!announcementsCollectionRef,
-      classInfo: classInfo?.id,
-      currentUser: currentUser?.uid,
-      userRole
-    });
-
-    if (!announcementsCollectionRef || !classInfo) {
-      console.log('Firebase not initialized or no class selected, using empty announcements');
-      setAnnouncements([]);
-      return;
-    }
-
-    if (!currentUser) {
-      console.log('User not authenticated, cannot fetch announcements');
+  const getAssignments = async () => {
+    if (!assignmentsCollectionRef || !classInfo) {
+      console.log('Firebase not initialized or no class selected, using empty assignments');
+      setAssignments([]);
       return;
     }
 
     try {
-      console.log('Attempting to fetch announcements from:', `classes/${classInfo.id}/announcements`);
-      const data = await getDocs(announcementsCollectionRef);
-      console.log('Announcements fetched successfully, count:', data.docs.length);
+      const data = await getDocs(assignmentsCollectionRef);
+      const assignmentsData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
       
-      const announcementsData = data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-      
-      // Sort announcements by creation date (newest first)
-      announcementsData.sort((a, b) => {
-        const aDate = a.createdAt?.toDate?.() || new Date(a.createdAt);
-        const bDate = b.createdAt?.toDate?.() || new Date(b.createdAt);
-        return bDate - aDate;
+      // Sort assignments by due date (earliest first)
+      assignmentsData.sort((a, b) => {
+        if (a.dueDate && b.dueDate) {
+          return new Date(a.dueDate) - new Date(b.dueDate);
+        }
+        return 0;
       });
       
-      setAnnouncements(announcementsData);
+      setAssignments(assignmentsData);
     } catch (error) {
-      console.error("Error fetching announcements: ", error);
-      console.error("Error code:", error.code);
-      console.error("Error message:", error.message);
-      
-      if (error.code === 'permission-denied') {
-        Alert.alert(
-          'Permission Error', 
-          'You don\'t have permission to access announcements for this class. Please contact your instructor.'
-        );
-      } else {
-        Alert.alert('Error', 'Failed to load announcements. Please try again later.');
-      }
-      setAnnouncements([]);
+      console.error("Error fetching assignments: ", error);
+      setAssignments([]);
     }
   };
 
@@ -130,11 +99,9 @@ export default function SectionAnnouncementScreen() {
   }, []);
 
   useEffect(() => {
-    if (currentUser && classInfo?.id) {
-      getAnnouncements();
-    }
+    getAssignments();
     requestImagePermissions();
-  }, [currentUser, classInfo]);
+  }, []);
 
   const requestImagePermissions = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -153,7 +120,7 @@ export default function SectionAnnouncementScreen() {
       });
 
       if (!result.canceled) {
-        setNewAnnouncement(prev => ({
+        setNewAssignment(prev => ({
           ...prev,
           attachedImages: [...prev.attachedImages, result.assets[0]]
         }));
@@ -172,7 +139,7 @@ export default function SectionAnnouncementScreen() {
       });
 
       if (!result.canceled && result.assets) {
-        setNewAnnouncement(prev => ({
+        setNewAssignment(prev => ({
           ...prev,
           attachedFiles: [...prev.attachedFiles, ...result.assets]
         }));
@@ -192,7 +159,7 @@ export default function SectionAnnouncementScreen() {
           text: 'Add',
           onPress: (url) => {
             if (url && url.trim()) {
-              setNewAnnouncement(prev => ({
+              setNewAssignment(prev => ({
                 ...prev,
                 links: [...prev.links, { url: url.trim(), title: url.trim() }]
               }));
@@ -207,21 +174,21 @@ export default function SectionAnnouncementScreen() {
   };
 
   const removeImage = (index) => {
-    setNewAnnouncement(prev => ({
+    setNewAssignment(prev => ({
       ...prev,
       attachedImages: prev.attachedImages.filter((_, i) => i !== index)
     }));
   };
 
   const removeFile = (index) => {
-    setNewAnnouncement(prev => ({
+    setNewAssignment(prev => ({
       ...prev,
       attachedFiles: prev.attachedFiles.filter((_, i) => i !== index)
     }));
   };
 
   const removeLink = (index) => {
-    setNewAnnouncement(prev => ({
+    setNewAssignment(prev => ({
       ...prev,
       links: prev.links.filter((_, i) => i !== index)
     }));
@@ -256,100 +223,71 @@ export default function SectionAnnouncementScreen() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getPriorityIcon = (priority) => {
-    switch (priority) {
-      case 'high': return '🔴';
-      case 'medium': return '🟡';
-      default: return '🟢';
-    }
-  };
-
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'high': return '#ff4757';
-      case 'medium': return '#ffa502';
-      default: return '#2ed573';
-    }
-  };
-
-  const handleCreateAnnouncement = async () => {
-    if (!newAnnouncement.title.trim() || !newAnnouncement.message.trim()) {
-      Alert.alert('Error', 'Please fill in title and message');
-      return;
-    }
-
-    if (!currentUser) {
-      Alert.alert('Error', 'You must be logged in to create announcements');
-      return;
-    }
-
-    if (userRole !== 'instructor') {
-      Alert.alert('Error', 'Only instructors can create announcements');
+  const handleCreateAssignment = async () => {
+    if (!newAssignment.title.trim() || !newAssignment.dueDate) {
+      Alert.alert('Error', 'Please fill in title and due date');
       return;
     }
 
     setIsLoading(true);
     
-    if (!announcementsCollectionRef) {
-      console.log('Firebase not available, announcement creation failed');
-      Alert.alert('Error', 'Unable to create announcement. Please try again.');
+    if (!assignmentsCollectionRef) {
+      console.log('Firebase not available, assignment creation failed');
+      Alert.alert('Error', 'Unable to create assignment. Please try again.');
       setIsLoading(false);
       return;
     }
 
     try {
-      const announcementData = {
-        title: newAnnouncement.title.trim(),
-        message: newAnnouncement.message.trim(),
-        priority: newAnnouncement.priority,
+      const assignmentData = {
+        title: newAssignment.title.trim(),
+        description: newAssignment.description.trim(),
+        instructions: newAssignment.instructions.trim(),
+        dueDate: newAssignment.dueDate,
+        points: parseInt(newAssignment.points) || 100,
         createdAt: new Date(),
         createdBy: currentUser?.uid,
         createdByName: currentUser?.displayName || currentUser?.email || 'Instructor',
         classId: classInfo?.id,
         className: classInfo?.name,
-        attachedFiles: newAnnouncement.attachedFiles,
-        attachedImages: newAnnouncement.attachedImages,
-        links: newAnnouncement.links,
-        likes: 0,
-        comments: 0
+        submissions: [],
+        status: 'active',
+        attachedFiles: newAssignment.attachedFiles,
+        attachedImages: newAssignment.attachedImages,
+        links: newAssignment.links
       };
 
-      await addDoc(announcementsCollectionRef, announcementData);
+      await addDoc(assignmentsCollectionRef, assignmentData);
       
       // Reset form
-      setNewAnnouncement({
+      setNewAssignment({
         title: '',
-        message: '',
-        priority: 'normal',
+        description: '',
+        dueDate: '',
+        points: '',
+        instructions: '',
         links: [],
         attachedFiles: [],
         attachedImages: []
       });
       
       setShowCreateModal(false);
-      getAnnouncements(); // Refresh the list
-      Alert.alert('Success', 'Announcement created successfully!');
+      getAssignments(); // Refresh the list
+      Alert.alert('Success', 'Assignment created successfully!');
     } catch (error) {
-      console.error("Error creating announcement: ", error);
-      if (error.code === 'permission-denied') {
-        Alert.alert(
-          'Permission Error', 
-          'You don\'t have permission to create announcements for this class. Please contact your administrator.'
-        );
-      } else {
-        Alert.alert('Error', 'Failed to create announcement. Please try again.');
-      }
+      console.error("Error creating assignment: ", error);
+      Alert.alert('Error', 'Failed to create assignment. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDeleteAnnouncement = async (announcementId) => {
-    if (!db || !announcementId) return;
+  const handleDeleteAssignment = async (assignmentId) => {
+    if (!db || !assignmentId) return;
 
     Alert.alert(
-      'Delete Announcement',
-      'Are you sure you want to delete this announcement? This action cannot be undone.',
+      'Delete Assignment',
+      'Are you sure you want to delete this assignment? This action cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -357,12 +295,12 @@ export default function SectionAnnouncementScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, 'classes', classInfo.id, 'announcements', announcementId));
-              getAnnouncements(); // Refresh the list
-              Alert.alert('Success', 'Announcement deleted successfully');
+              await deleteDoc(doc(db, 'classes', classInfo.id, 'assignments', assignmentId));
+              getAssignments(); // Refresh the list
+              Alert.alert('Success', 'Assignment deleted successfully');
             } catch (error) {
-              console.error('Error deleting announcement:', error);
-              Alert.alert('Error', 'Failed to delete announcement');
+              console.error('Error deleting assignment:', error);
+              Alert.alert('Error', 'Failed to delete assignment');
             }
           }
         }
@@ -370,15 +308,18 @@ export default function SectionAnnouncementScreen() {
     );
   };
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return '';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
       weekday: 'short',
       year: 'numeric',
       month: 'short',
       day: 'numeric'
-    }) + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+  };
+
+  const isOverdue = (dueDate) => {
+    return new Date(dueDate) < new Date();
   };
 
   return (
@@ -389,8 +330,8 @@ export default function SectionAnnouncementScreen() {
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.title}>Section Announcements</Text>
-          <Text style={styles.subtitle}>{classInfo?.name || 'Class Announcements'}</Text>
+          <Text style={styles.title}>Assignments</Text>
+          <Text style={styles.subtitle}>{classInfo?.name || 'Class Assignments'}</Text>
         </View>
         {userRole === 'instructor' && (
           <TouchableOpacity 
@@ -403,56 +344,62 @@ export default function SectionAnnouncementScreen() {
       </View>
 
       <ScrollView style={styles.content}>
-        {announcements.length === 0 ? (
+        {assignments.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>�</Text>
-            <Text style={styles.emptyStateTitle}>No announcements yet</Text>
+            <Text style={styles.emptyStateIcon}>📝</Text>
+            <Text style={styles.emptyStateTitle}>No assignments yet</Text>
             <Text style={styles.emptyStateText}>
               {userRole === 'instructor' 
-                ? 'Create your first announcement to keep students informed!'
-                : 'Your instructor hasn\'t posted any announcements yet.'
+                ? 'Create your first assignment to get started!'
+                : 'Your instructor hasn\'t posted any assignments yet.'
               }
             </Text>
           </View>
         ) : (
-          announcements.map((announcement) => (
-            <View key={announcement.id} style={styles.announcementCard}>
-              <View style={styles.announcementHeader}>
-                <View style={styles.announcementTitleRow}>
-                  <View style={styles.priorityIndicator}>
-                    <Text style={styles.priorityIcon}>
-                      {getPriorityIcon(announcement.priority)}
-                    </Text>
-                    <Text style={styles.announcementTitle}>{announcement.title}</Text>
-                  </View>
+          assignments.map((assignment) => (
+            <View key={assignment.id} style={styles.assignmentCard}>
+              <View style={styles.assignmentHeader}>
+                <View style={styles.assignmentTitleRow}>
+                  <Text style={styles.assignmentTitle}>{assignment.title}</Text>
+                  <Text style={styles.assignmentPoints}>{assignment.points} pts</Text>
+                </View>
+                <View style={styles.assignmentMetaRow}>
+                  <Text style={[
+                    styles.assignmentDueDate,
+                    isOverdue(assignment.dueDate) && styles.overdue
+                  ]}>
+                    Due: {formatDate(assignment.dueDate)}
+                    {isOverdue(assignment.dueDate) && ' (Overdue)'}
+                  </Text>
                   {userRole === 'instructor' && (
                     <TouchableOpacity 
                       style={styles.deleteButton}
-                      onPress={() => handleDeleteAnnouncement(announcement.id)}
+                      onPress={() => handleDeleteAssignment(assignment.id)}
                     >
                       <Text style={styles.deleteButtonText}>🗑️</Text>
                     </TouchableOpacity>
                   )}
                 </View>
-                <View style={styles.announcementMetaRow}>
-                  <Text style={styles.announcementAuthor}>
-                    By: {announcement.createdByName}
-                  </Text>
-                  <Text style={styles.announcementDate}>
-                    {formatDate(announcement.createdAt)}
-                  </Text>
-                </View>
               </View>
               
-              <Text style={styles.announcementMessage}>{announcement.message}</Text>
+              {assignment.description && (
+                <Text style={styles.assignmentDescription}>{assignment.description}</Text>
+              )}
+              
+              {assignment.instructions && (
+                <View style={styles.instructionsSection}>
+                  <Text style={styles.instructionsLabel}>Instructions:</Text>
+                  <Text style={styles.instructionsText}>{assignment.instructions}</Text>
+                </View>
+              )}
 
               {/* Attachments Display */}
-              {(announcement.attachedImages?.length > 0 || announcement.attachedFiles?.length > 0 || announcement.links?.length > 0) && (
+              {(assignment.attachedImages?.length > 0 || assignment.attachedFiles?.length > 0 || assignment.links?.length > 0) && (
                 <View style={styles.attachmentsSection}>
                   <Text style={styles.attachmentsLabel}>Attachments:</Text>
                   
                   {/* Images */}
-                  {announcement.attachedImages?.map((image, index) => (
+                  {assignment.attachedImages?.map((image, index) => (
                     <View key={`img-${index}`} style={styles.attachmentItem}>
                       <Image source={{ uri: image.uri }} style={styles.attachmentImage} />
                       <Text style={styles.attachmentName} numberOfLines={1}>
@@ -462,7 +409,7 @@ export default function SectionAnnouncementScreen() {
                   ))}
                   
                   {/* Files */}
-                  {announcement.attachedFiles?.map((file, index) => (
+                  {assignment.attachedFiles?.map((file, index) => (
                     <TouchableOpacity key={`file-${index}`} style={styles.attachmentItem}>
                       <Text style={styles.attachmentIcon}>{getFileIcon(file.name)}</Text>
                       <View style={styles.attachmentInfo}>
@@ -474,7 +421,7 @@ export default function SectionAnnouncementScreen() {
                   ))}
                   
                   {/* Links */}
-                  {announcement.links?.map((link, index) => (
+                  {assignment.links?.map((link, index) => (
                     <TouchableOpacity key={`link-${index}`} style={styles.attachmentItem}>
                       <Text style={styles.attachmentIcon}>🔗</Text>
                       <View style={styles.attachmentInfo}>
@@ -487,27 +434,30 @@ export default function SectionAnnouncementScreen() {
                 </View>
               )}
               
-              <View style={styles.announcementActions}>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionIcon}>♡</Text>
-                  <Text style={styles.actionCount}>{announcement.likes || 0}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionIcon}>💬</Text>
-                  <Text style={styles.actionCount}>{announcement.comments || 0}</Text>
-                </TouchableOpacity>
+              <View style={styles.assignmentActions}>
+                {userRole === 'student' ? (
+                  <TouchableOpacity style={styles.submitButton}>
+                    <Text style={styles.submitButtonText}>Submit Assignment</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={styles.viewSubmissionsButton}>
+                    <Text style={styles.viewSubmissionsButtonText}>
+                      View Submissions ({assignment.submissions?.length || 0})
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           ))
         )}
       </ScrollView>
 
-      {/* Create Announcement Modal */}
+      {/* Create Assignment Modal */}
       <Modal visible={showCreateModal} transparent={true} animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Create Announcement</Text>
+              <Text style={styles.modalTitle}>Create Assignment</Text>
               <TouchableOpacity onPress={() => setShowCreateModal(false)}>
                 <Text style={styles.modalCloseButton}>✕</Text>
               </TouchableOpacity>
@@ -515,49 +465,59 @@ export default function SectionAnnouncementScreen() {
             
             <ScrollView style={styles.modalBody}>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Announcement Title *</Text>
+                <Text style={styles.inputLabel}>Assignment Title *</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Enter announcement title"
-                  value={newAnnouncement.title}
-                  onChangeText={(text) => setNewAnnouncement({...newAnnouncement, title: text})}
+                  placeholder="Enter assignment title"
+                  value={newAssignment.title}
+                  onChangeText={(text) => setNewAssignment({...newAssignment, title: text})}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Message *</Text>
+                <Text style={styles.inputLabel}>Description</Text>
                 <TextInput
                   style={[styles.textInput, styles.textArea]}
-                  placeholder="Enter your announcement message"
+                  placeholder="Brief description of the assignment"
                   multiline
-                  numberOfLines={4}
-                  value={newAnnouncement.message}
-                  onChangeText={(text) => setNewAnnouncement({...newAnnouncement, message: text})}
+                  numberOfLines={3}
+                  value={newAssignment.description}
+                  onChangeText={(text) => setNewAssignment({...newAssignment, description: text})}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Priority Level</Text>
-                <View style={styles.priorityButtons}>
-                  {['normal', 'medium', 'high'].map((priority) => (
-                    <TouchableOpacity
-                      key={priority}
-                      style={[
-                        styles.priorityButton,
-                        newAnnouncement.priority === priority && styles.priorityButtonActive,
-                        { borderColor: getPriorityColor(priority) }
-                      ]}
-                      onPress={() => setNewAnnouncement({...newAnnouncement, priority})}
-                    >
-                      <Text style={styles.priorityButtonIcon}>{getPriorityIcon(priority)}</Text>
-                      <Text style={[
-                        styles.priorityButtonText,
-                        newAnnouncement.priority === priority && { color: getPriorityColor(priority) }
-                      ]}>
-                        {priority.charAt(0).toUpperCase() + priority.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                <Text style={styles.inputLabel}>Instructions</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  placeholder="Detailed instructions for students"
+                  multiline
+                  numberOfLines={4}
+                  value={newAssignment.instructions}
+                  onChangeText={(text) => setNewAssignment({...newAssignment, instructions: text})}
+                />
+              </View>
+
+              <View style={styles.inputRow}>
+                <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                  <Text style={styles.inputLabel}>Due Date *</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="YYYY-MM-DD"
+                    value={newAssignment.dueDate}
+                    onChangeText={(text) => setNewAssignment({...newAssignment, dueDate: text})}
+                  />
+                </View>
+
+                <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                  <Text style={styles.inputLabel}>Points</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="100"
+                    keyboardType="numeric"
+                    value={newAssignment.points}
+                    onChangeText={(text) => setNewAssignment({...newAssignment, points: text})}
+                  />
                 </View>
               </View>
 
@@ -584,10 +544,10 @@ export default function SectionAnnouncementScreen() {
                 </View>
 
                 {/* Attached Images Preview */}
-                {newAnnouncement.attachedImages.length > 0 && (
+                {newAssignment.attachedImages.length > 0 && (
                   <View style={styles.attachedItemsContainer}>
                     <Text style={styles.attachedItemsLabel}>Attached Images:</Text>
-                    {newAnnouncement.attachedImages.map((image, index) => (
+                    {newAssignment.attachedImages.map((image, index) => (
                       <View key={index} style={styles.attachedItem}>
                         <Image source={{ uri: image.uri }} style={styles.previewImage} />
                         <View style={styles.attachedItemInfo}>
@@ -607,10 +567,10 @@ export default function SectionAnnouncementScreen() {
                 )}
 
                 {/* Attached Files Preview */}
-                {newAnnouncement.attachedFiles.length > 0 && (
+                {newAssignment.attachedFiles.length > 0 && (
                   <View style={styles.attachedItemsContainer}>
                     <Text style={styles.attachedItemsLabel}>Attached Files:</Text>
-                    {newAnnouncement.attachedFiles.map((file, index) => (
+                    {newAssignment.attachedFiles.map((file, index) => (
                       <View key={index} style={styles.attachedItem}>
                         <Text style={styles.attachedFileIcon}>{getFileIcon(file.name)}</Text>
                         <View style={styles.attachedItemInfo}>
@@ -633,10 +593,10 @@ export default function SectionAnnouncementScreen() {
                 )}
 
                 {/* Attached Links Preview */}
-                {newAnnouncement.links.length > 0 && (
+                {newAssignment.links.length > 0 && (
                   <View style={styles.attachedItemsContainer}>
                     <Text style={styles.attachedItemsLabel}>Attached Links:</Text>
-                    {newAnnouncement.links.map((link, index) => (
+                    {newAssignment.links.map((link, index) => (
                       <View key={index} style={styles.attachedItem}>
                         <Text style={styles.attachedFileIcon}>🔗</Text>
                         <View style={styles.attachedItemInfo}>
@@ -670,11 +630,11 @@ export default function SectionAnnouncementScreen() {
               
               <TouchableOpacity 
                 style={[styles.createButton, isLoading && styles.createButtonDisabled]}
-                onPress={handleCreateAnnouncement}
+                onPress={handleCreateAssignment}
                 disabled={isLoading}
               >
                 <Text style={styles.createButtonText}>
-                  {isLoading ? 'Posting...' : 'Post Announcement'}
+                  {isLoading ? 'Creating...' : 'Create Assignment'}
                 </Text>
               </TouchableOpacity>
             </View>

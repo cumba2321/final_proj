@@ -15,6 +15,8 @@ import InstructorFeedbackScreen from './screens/InstructorFeedbackScreen';
 import CampusAnnouncementScreen from './screens/CampusAnnouncementScreen';
 import SectionAnnouncementScreen from './screens/SectionAnnouncementScreen';
 import ClassWallScreen from './screens/ClassWallScreen';
+import ClassDetailsScreen from './screens/ClassDetailsScreen';
+import AssignmentsScreen from './screens/AssignmentsScreen';
 import MyProfileScreen from './screens/MyProfileScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -63,6 +65,8 @@ export default function App() {
               options={{ headerShown: false }}
             />
             <Stack.Screen name="PATHclass" component={PATHclassScreen} />
+            <Stack.Screen name="ClassDetails" component={ClassDetailsScreen} />
+            <Stack.Screen name="Assignments" component={AssignmentsScreen} />
             <Stack.Screen name="InstructorFeedback" component={InstructorFeedbackScreen} />
             <Stack.Screen name="CampusAnnouncement" component={CampusAnnouncementScreen} />
             <Stack.Screen name="SectionAnnouncement" component={SectionAnnouncementScreen} />

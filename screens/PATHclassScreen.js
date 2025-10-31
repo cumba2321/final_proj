@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, M
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { doc, getDoc, collection, addDoc, getDocs, updateDoc, arrayUnion, arrayRemove, serverTimestamp, query, where } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, getDocs, updateDoc, arrayUnion, arrayRemove, serverTimestamp, query, where, deleteDoc } from 'firebase/firestore';
 
 export default function PATHclassScreen() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -210,10 +210,12 @@ export default function PATHclassScreen() {
       if (db && currentUser) {
         if (userRole === 'instructor') {
           // For instructors: Delete the entire class document
-          // Note: In a production app, you might want to archive instead of delete
           console.log('Instructor deleting class:', selectedClass.id);
-          // TODO: Implement actual Firebase document deletion with proper permissions
-          // For now, just refresh the list which will remove it from view
+          
+          // Delete the class document from Firestore
+          await deleteDoc(doc(db, 'classes', selectedClass.id));
+          
+          console.log('Successfully deleted class document');
         } else {
           // For students: Remove from the students array
           console.log('Student unenrolling from class:', selectedClass.id);
@@ -234,14 +236,14 @@ export default function PATHclassScreen() {
         setShowUnenrollModal(false);
         setSelectedClass(null);
         const message = userRole === 'instructor' 
-          ? 'Class removed from your view!' 
+          ? 'Class deleted successfully!' 
           : 'Successfully unenrolled from the class!';
         Alert.alert('Success', message);
       }
     } catch (error) {
       console.error('Error processing request:', error);
       const errorMessage = userRole === 'instructor'
-        ? 'Failed to remove class. Please try again.'
+        ? 'Failed to delete class. Please try again.'
         : 'Failed to unenroll from class. Please try again.';
       Alert.alert('Error', `${errorMessage}\n\nError: ${error.message}`);
     }
@@ -393,7 +395,14 @@ export default function PATHclassScreen() {
           ) : (
             <View style={styles.classesGrid}>
               {classes.map((classItem) => (
-                <TouchableOpacity key={classItem.id} style={styles.classCard}>
+                <TouchableOpacity 
+                  key={classItem.id} 
+                  style={styles.classCard}
+                  onPress={() => navigation.navigate('ClassDetails', { 
+                    classInfo: classItem,
+                    userRole: userRole 
+                  })}
+                >
                   <View style={[styles.classHeader, { backgroundColor: classItem.color || '#1976D2' }]}>
                     <View style={styles.classHeaderContent}>
                       <Text style={styles.className} numberOfLines={2}>
