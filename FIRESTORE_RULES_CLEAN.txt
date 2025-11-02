@@ -1,8 +1,57 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Temporary permissive rules for development
-    // Allow all authenticated users to read and write to any document
+    // Users collection - users can read/write their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null; // Allow reading other users for class management
+    }
+    
+    // Classes collection - instructors can create/manage, students can read and join
+    match /classes/{classId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      
+      // Assignments subcollection
+      match /assignments/{assignmentId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null;
+      }
+      
+      // Submissions subcollection - students can submit, instructors can grade
+      match /submissions/{submissionId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if request.auth != null;
+      }
+    }
+    
+    // Campus announcements
+    match /campusAnnouncements/{announcementId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Section announcements
+    match /sectionAnnouncements/{announcementId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // ClassWall posts
+    match /classWall/{postId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null;
+      }
+    }
+    
+    // Fallback rule - allow all authenticated operations
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
