@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Ale
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import { doc, getDoc, collection, getDocs, addDoc, deleteDoc, updateDoc, increment, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, addDoc, deleteDoc, updateDoc, increment, serverTimestamp, onSnapshot, query, where } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
@@ -63,14 +63,19 @@ export default function HomeScreen() {
     try {
       // Delete from Firestore if database is available
       if (db) {
-        await deleteDoc(doc(db, 'classWall', selectedPost.id));
+        const postRef = doc(db, 'classWall', selectedPost.id);
+        
+        // Delete the post document (this includes all nested data like comments)
+        await deleteDoc(postRef);
+        
+        console.log('Post deleted from Firestore:', selectedPost.id);
       }
       
       // Remove from local state
       setClassWallPosts(prevPosts => prevPosts.filter(post => post.id !== selectedPost.id));
       
       closePostMenu();
-      Alert.alert('Success', 'Post deleted successfully');
+      Alert.alert('Success', 'Post and all related data deleted successfully');
       
       // Refresh posts to ensure sync
       if (db) {
@@ -78,7 +83,7 @@ export default function HomeScreen() {
       }
     } catch (error) {
       console.error('Error deleting post:', error);
-      Alert.alert('Error', 'Failed to delete post');
+      Alert.alert('Error', 'Failed to delete post. Please try again.');
     }
   };
 

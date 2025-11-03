@@ -9,8 +9,9 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
 import { signOut } from 'firebase/auth';
+import { doc, deleteDoc, collection, getDocs, query, where } from 'firebase/firestore';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -22,6 +23,92 @@ export default function SettingsScreen() {
 
   const handleSignOut = () => {
     signOut(auth).catch(error => alert(error.message));
+  };
+
+  // Cascade deletion functions
+  const deleteAllUserPosts = async (userId) => {
+    if (!userId || !db) return;
+
+    try {
+      console.log('Starting cascade deletion for user:', userId);
+      
+      // Query posts by specific user ID (more efficient)
+      const postsQuery = query(
+        collection(db, 'classWall'),
+        where('authorId', '==', userId)
+      );
+      const querySnapshot = await getDocs(postsQuery);
+      
+      const deletionPromises = [];
+      let deletedCount = 0;
+      
+      querySnapshot.forEach((docSnapshot) => {
+        deletionPromises.push(deleteDoc(doc(db, 'classWall', docSnapshot.id)));
+        deletedCount++;
+      });
+      
+      // Execute all deletions in parallel
+      await Promise.all(deletionPromises);
+      
+      console.log(`Successfully deleted ${deletedCount} posts for user ${userId}`);
+      return deletedCount;
+    } catch (error) {
+      console.error('Error in cascade deletion:', error);
+      throw error;
+    }
+  };
+
+  const deleteUserAccount = async () => {
+    const currentUserId = user?.uid;
+    if (!currentUserId) {
+      Alert.alert('Error', 'No user logged in');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This will permanently delete your account and all your posts. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete Account', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              // Step 1: Delete all user's posts
+              const deletedPostsCount = await deleteAllUserPosts(currentUserId);
+              
+              // Step 2: Delete user document from Firestore
+              if (db) {
+                await deleteDoc(doc(db, 'users', currentUserId));
+              }
+              
+              // Step 3: Delete Firebase Auth account
+              if (auth.currentUser) {
+                await auth.currentUser.delete();
+              }
+              
+              Alert.alert(
+                'Account Deleted', 
+                `Your account and ${deletedPostsCount} posts have been permanently deleted.`,
+                [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+              );
+              
+            } catch (error) {
+              console.error('Error deleting account:', error);
+              if (error.code === 'auth/requires-recent-login') {
+                Alert.alert(
+                  'Re-authentication Required',
+                  'For security reasons, please log out and log back in before deleting your account.'
+                );
+              } else {
+                Alert.alert('Error', 'Failed to delete account. Please try again.');
+              }
+            }
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -71,6 +158,16 @@ export default function SettingsScreen() {
               </Text>
             </View>
             <Text style={styles.arrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.settingItem, styles.dangerItem]} onPress={deleteUserAccount}>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingTitle, styles.dangerText]}>Delete Account</Text>
+              <Text style={styles.settingDescription}>
+                Permanently delete your account and all data
+              </Text>
+            </View>
+            <Text style={[styles.arrow, styles.dangerText]}>›</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -159,5 +256,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#666',
+  },
+  dangerItem: {
+    borderBottomWidth: 0, // Remove border for last item
+  },
+  dangerText: {
+    color: '#d32f2f', // Red color for delete action
   },
 });
