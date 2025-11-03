@@ -53,6 +53,13 @@ export default function HomeScreen() {
   const deletePost = async () => {
     if (!selectedPost) return;
 
+    // Security check: Only allow deletion if user owns the post or is an instructor
+    if (!isPostOwner(selectedPost) && userRole !== 'instructor') {
+      Alert.alert('Error', 'You do not have permission to delete this post.');
+      closePostMenu();
+      return;
+    }
+
     try {
       // Delete from Firestore if database is available
       if (db) {
@@ -78,6 +85,14 @@ export default function HomeScreen() {
   // Edit post functions
   const openEditPostModal = () => {
     if (!selectedPost) return;
+    
+    // Security check: Only allow editing if user owns the post
+    if (!isPostOwner(selectedPost)) {
+      Alert.alert('Error', 'You do not have permission to edit this post.');
+      closePostMenu();
+      return;
+    }
+    
     setEditingPost(selectedPost);
     setEditPostText(selectedPost.message || '');
     // Initialize with existing media if any
@@ -537,13 +552,30 @@ export default function HomeScreen() {
 
   // Check if current user owns the post
   const isPostOwner = (post) => {
-    const currentUserName = currentUser?.displayName || currentUser?.email || 'You';
     const currentUserId = currentUser?.uid;
     
-    // Check by author name or author ID for better accuracy
-    return post.author === currentUserName || 
-           post.author === 'You' || 
-           (post.authorId && currentUserId && post.authorId === currentUserId);
+    // Must have both post.authorId and currentUserId for ownership check
+    if (!post.authorId || !currentUserId) {
+      console.log('Ownership check failed: Missing authorId or currentUserId', {
+        postAuthorId: post.authorId,
+        currentUserId: currentUserId,
+        postAuthor: post.author
+      });
+      return false;
+    }
+    
+    // Primary check: Use authorId for accurate ownership verification
+    const isOwner = post.authorId === currentUserId;
+    
+    console.log('Post ownership check:', {
+      postId: post.id,
+      postAuthor: post.author,
+      postAuthorId: post.authorId,
+      currentUserId: currentUserId,
+      isOwner: isOwner
+    });
+    
+    return isOwner;
   };
 
   // New post functions
@@ -1058,7 +1090,8 @@ export default function HomeScreen() {
                 </View>
                 <Text style={styles.timestamp}>{post.timestamp}</Text>
               </View>
-              {isPostOwner(post) && (
+              {/* Only show menu button for posts owned by current user */}
+              {currentUser?.uid && post.authorId && currentUser.uid === post.authorId && (
                 <TouchableOpacity 
                   style={styles.postMenuButton}
                   onPress={() => openPostMenu(post)}
@@ -1287,7 +1320,7 @@ export default function HomeScreen() {
             </View>
             
             {/* Only show Edit option if current user is the author */}
-            {selectedPost && selectedPost.authorId === currentUser?.uid && (
+            {selectedPost && isPostOwner(selectedPost) && (
               <TouchableOpacity 
                 style={styles.postMenuOption} 
                 onPress={openEditPostModal}
@@ -1298,7 +1331,7 @@ export default function HomeScreen() {
             )}
             
             {/* Only show Delete option if current user is the author or is an instructor */}
-            {selectedPost && (selectedPost.authorId === currentUser?.uid || userRole === 'instructor') && (
+            {selectedPost && (isPostOwner(selectedPost) || userRole === 'instructor') && (
               <TouchableOpacity 
                 style={[styles.postMenuOption, styles.deleteOption]} 
                 onPress={() => {
@@ -1563,11 +1596,6 @@ export default function HomeScreen() {
               <TouchableOpacity onPress={() => setShowSideMenu(false)}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
-            </View>
-            
-            <View style={styles.searchContainer}>
-              <Text style={styles.searchPlaceholder}>Search</Text>
-              <Text style={styles.searchIcon}>🔍</Text>
             </View>
 
             <ScrollView style={styles.menuItemsContainer}>
@@ -2029,22 +2057,6 @@ const styles = StyleSheet.create({
     padding: 4,
     marginTop: 14,
     marginRight: 3,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    margin: 16,
-    padding: 12,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-  },
-  searchPlaceholder: {
-    color: '#999',
-    fontSize: 16,
-  },
-  searchIcon: {
-    fontSize: 16,
   },
   menuItemsContainer: {
     flex: 1,
