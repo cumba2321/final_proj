@@ -30,7 +30,17 @@ export default function AssignmentsScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState(new Date());
+  const [noDueDate, setNoDueDate] = useState(false);
+  
+  // Extend Deadline Modal State
+  const [showExtendDeadlineModal, setShowExtendDeadlineModal] = useState(false);
+  const [selectedAssignmentToExtend, setSelectedAssignmentToExtend] = useState(null);
+  const [newExtendedDate, setNewExtendedDate] = useState(new Date());
+  const [showExtendDatePicker, setShowExtendDatePicker] = useState(false);
+  const [showExtendTimePicker, setShowExtendTimePicker] = useState(false);
   
   // Submission Modal State
   const [showSubmissionModal, setShowSubmissionModal] = useState(false);
@@ -41,6 +51,15 @@ export default function AssignmentsScreen() {
     attachedImages: []
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Instructor Submissions View State
+  const [showSubmissionsModal, setShowSubmissionsModal] = useState(false);
+  const [currentAssignmentSubmissions, setCurrentAssignmentSubmissions] = useState(null);
+  const [submissionsList, setSubmissionsList] = useState([]);
+  const [studentsData, setStudentsData] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredSubmissionsList, setFilteredSubmissionsList] = useState([]);
+  const [filterType, setFilterType] = useState('all'); // 'all', 'submitted', 'not_submitted'
   
   // Create Assignment Modal State
   const [newAssignment, setNewAssignment] = useState({
@@ -104,6 +123,23 @@ export default function AssignmentsScreen() {
             assignment.isSubmitted = false;
             console.log('No submission found for assignment:', assignment.id, assignment.title);
           }
+        }
+      }
+      
+      // If user is an instructor, fetch submission counts for each assignment
+      if (userRole === 'instructor') {
+        console.log('Fetching submission counts for instructor');
+        const submissionsCollectionRef = collection(db, 'classes', classInfo.id, 'submissions');
+        
+        for (let assignment of assignmentsData) {
+          const submissionQuery = query(
+            submissionsCollectionRef,
+            where('assignmentId', '==', assignment.id)
+          );
+          
+          const submissionDocs = await getDocs(submissionQuery);
+          assignment.submissions = submissionDocs.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+          console.log('Found', assignment.submissions.length, 'submissions for assignment:', assignment.title);
         }
       }
       
@@ -279,8 +315,8 @@ export default function AssignmentsScreen() {
   };
 
   const handleCreateAssignment = async () => {
-    if (!newAssignment.title.trim() || !newAssignment.dueDate) {
-      Alert.alert('Error', 'Please fill in title and due date');
+    if (!newAssignment.title.trim() || (!noDueDate && !newAssignment.dueDate)) {
+      Alert.alert('Error', 'Please fill in title and set due date or select "No due date"');
       return;
     }
 
@@ -298,7 +334,7 @@ export default function AssignmentsScreen() {
         title: newAssignment.title.trim(),
         description: newAssignment.description.trim(),
         instructions: newAssignment.instructions.trim(),
-        dueDate: newAssignment.dueDate,
+        dueDate: noDueDate ? null : newAssignment.dueDate,
         points: parseInt(newAssignment.points) || 100,
         createdAt: new Date(),
         createdBy: currentUser?.uid,
@@ -309,7 +345,8 @@ export default function AssignmentsScreen() {
         status: 'active',
         attachedFiles: newAssignment.attachedFiles,
         attachedImages: newAssignment.attachedImages,
-        links: newAssignment.links
+        links: newAssignment.links,
+        hasNoDueDate: noDueDate
       };
 
       await addDoc(assignmentsCollectionRef, assignmentData);
@@ -326,6 +363,8 @@ export default function AssignmentsScreen() {
         attachedImages: []
       });
       setSelectedDate(new Date());
+      setSelectedTime(new Date());
+      setNoDueDate(false);
       
       setShowCreateModal(false);
       getAssignments(); // Refresh the list
@@ -364,6 +403,70 @@ export default function AssignmentsScreen() {
     );
   };
 
+  // Extend Deadline Functions
+  const openExtendDeadlineModal = (assignment) => {
+    setSelectedAssignmentToExtend(assignment);
+    const currentDate = assignment.dueDate ? new Date(assignment.dueDate) : new Date();
+    setNewExtendedDate(currentDate);
+    setShowExtendDeadlineModal(true);
+  };
+
+  const handleExtendDeadline = async () => {
+    if (!selectedAssignmentToExtend || !newExtendedDate) {
+      Alert.alert('Error', 'Please select a new deadline');
+      return;
+    }
+
+    try {
+      const assignmentRef = doc(db, 'classes', classInfo.id, 'assignments', selectedAssignmentToExtend.id);
+      await updateDoc(assignmentRef, {
+        dueDate: newExtendedDate.toISOString(),
+        extendedAt: new Date(),
+        extendedBy: currentUser?.uid
+      });
+      
+      setShowExtendDeadlineModal(false);
+      getAssignments(); // Refresh the list
+      Alert.alert('Success', 'Deadline extended successfully!');
+    } catch (error) {
+      console.error('Error extending deadline:', error);
+      Alert.alert('Error', 'Failed to extend deadline');
+    }
+  };
+
+  const handleExtendDateChange = (event, date) => {
+    if (Platform.OS === 'android') {
+      setShowExtendDatePicker(false);
+    }
+    
+    if (date) {
+      // Combine with existing time or set default time
+      let finalDate = date;
+      if (selectedAssignmentToExtend?.dueDate) {
+        const existingDate = new Date(selectedAssignmentToExtend.dueDate);
+        finalDate = new Date(date);
+        finalDate.setHours(existingDate.getHours());
+        finalDate.setMinutes(existingDate.getMinutes());
+      } else {
+        finalDate.setHours(23, 59, 0, 0);
+      }
+      setNewExtendedDate(finalDate);
+    }
+  };
+
+  const handleExtendTimeChange = (event, time) => {
+    if (Platform.OS === 'android') {
+      setShowExtendTimePicker(false);
+    }
+    
+    if (time) {
+      const finalDate = new Date(newExtendedDate);
+      finalDate.setHours(time.getHours());
+      finalDate.setMinutes(time.getMinutes());
+      setNewExtendedDate(finalDate);
+    }
+  };
+
   // Date picker functions
   const handleDateChange = (event, date) => {
     if (Platform.OS === 'android') {
@@ -372,8 +475,35 @@ export default function AssignmentsScreen() {
     
     if (date) {
       setSelectedDate(date);
-      const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
-      setNewAssignment({...newAssignment, dueDate: formattedDate});
+      // Combine the selected date with current time if time was previously set
+      let finalDate = date;
+      if (newAssignment.dueDate) {
+        const existingDate = new Date(newAssignment.dueDate);
+        finalDate = new Date(date);
+        finalDate.setHours(existingDate.getHours());
+        finalDate.setMinutes(existingDate.getMinutes());
+      } else {
+        // Set default time to 11:59 PM
+        finalDate.setHours(23, 59, 0, 0);
+      }
+      setSelectedTime(finalDate);
+      setNewAssignment({...newAssignment, dueDate: finalDate.toISOString()});
+    }
+  };
+
+  const handleTimeChange = (event, time) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
+    
+    if (time) {
+      setSelectedTime(time);
+      // Combine the existing date with the new time
+      const existingDate = new Date(newAssignment.dueDate);
+      const finalDate = new Date(existingDate);
+      finalDate.setHours(time.getHours());
+      finalDate.setMinutes(time.getMinutes());
+      setNewAssignment({...newAssignment, dueDate: finalDate.toISOString()});
     }
   };
 
@@ -392,7 +522,18 @@ export default function AssignmentsScreen() {
     });
   };
 
+  const formatDisplayTime = (dateString) => {
+    if (!dateString) return 'Set time';
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   const formatDate = (dateString) => {
+    if (!dateString) return 'No due date';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
       weekday: 'short',
@@ -406,12 +547,24 @@ export default function AssignmentsScreen() {
   };
 
   const isOverdue = (dueDate) => {
+    if (!dueDate) return false; // No due date means never overdue
     return new Date(dueDate) < new Date();
   };
 
   // Submission Functions
   const openSubmissionModal = (assignment) => {
     console.log('Opening submission modal for:', assignment.title);
+    
+    // Check if the assignment deadline has passed and it hasn't been submitted
+    if (isOverdue(assignment.dueDate) && !assignment.isSubmitted) {
+      Alert.alert(
+        'Submission Deadline Passed', 
+        'This assignment is past its due date. You can no longer submit your work.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
     setSelectedAssignment(assignment);
     
     // If assignment was previously submitted, populate with existing data
@@ -518,6 +671,16 @@ export default function AssignmentsScreen() {
     
     if (!selectedAssignment || !currentUser || !db) {
       Alert.alert('Error', 'Unable to submit assignment');
+      return;
+    }
+
+    // Check if the assignment deadline has passed
+    if (isOverdue(selectedAssignment.dueDate)) {
+      Alert.alert(
+        'Submission Deadline Passed', 
+        'This assignment is past its due date. You can no longer submit your work.',
+        [{ text: 'OK' }]
+      );
       return;
     }
 
@@ -662,6 +825,7 @@ export default function AssignmentsScreen() {
       }));
 
       Alert.alert('Success', 'Assignment unsubmitted! You can now edit your work.');
+      getAssignments(); // Refresh to update submission counts for instructors
       
     } catch (error) {
       console.error('Error unsubmitting assignment:', error);
@@ -771,6 +935,117 @@ export default function AssignmentsScreen() {
     }
   };
 
+  const viewSubmissions = async (assignment) => {
+    try {
+      console.log('ViewSubmissions called for assignment:', assignment.id, assignment.title);
+      console.log('Class ID:', classInfo?.id);
+      setCurrentAssignmentSubmissions(assignment);
+      
+      // Fetch all submissions for this assignment
+      const submissionsQuery = query(
+        collection(db, 'classes', classInfo?.id, 'submissions'),
+        where('assignmentId', '==', assignment.id)
+      );
+      
+      const submissionsSnapshot = await getDocs(submissionsQuery);
+      const submissions = submissionsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      console.log('Found submissions:', submissions.length, submissions);
+      
+      // Try to fetch enrolled students first
+      let allStudents = [];
+      try {
+        const studentsQuery = query(
+          collection(db, 'classes', classInfo?.id, 'students')
+        );
+        
+        const studentsSnapshot = await getDocs(studentsQuery);
+        allStudents = studentsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        console.log('Found enrolled students:', allStudents.length);
+      } catch (error) {
+        console.log('No students collection found, using submissions data');
+      }
+      
+      // If no enrolled students found, create list from submissions + maybe include a way to add missing students
+      if (allStudents.length === 0) {
+        // Create student list from submissions only
+        allStudents = submissions.map(submission => ({
+          id: submission.studentId,
+          name: submission.studentName || submission.studentEmail || 'Unknown Student',
+          email: submission.studentEmail || 'No email'
+        }));
+      }
+      
+      // Combine submissions with student data
+      const submissionsWithStudentData = allStudents.map(student => {
+        const submission = submissions.find(sub => sub.studentId === student.id);
+        return {
+          student,
+          submission: submission || null,
+          hasSubmitted: !!submission
+        };
+      });
+      
+      console.log('Submissions with student data:', submissionsWithStudentData);
+      
+      setSubmissionsList(submissionsWithStudentData);
+      setStudentsData(allStudents);
+      setShowSubmissionsModal(true);
+      
+    } catch (error) {
+      console.error('Error fetching submissions:', error);
+      Alert.alert('Error', 'Failed to load submissions');
+    }
+  };
+
+  // Search and filter function for submissions
+  const applyFiltersAndSearch = (query = searchQuery, filter = filterType) => {
+    let filtered = [...submissionsList];
+    
+    // Apply status filter first
+    if (filter === 'submitted') {
+      filtered = filtered.filter(item => item.hasSubmitted);
+    } else if (filter === 'not_submitted') {
+      filtered = filtered.filter(item => !item.hasSubmitted);
+    }
+    
+    // Apply search filter
+    if (query.trim()) {
+      filtered = filtered.filter(item => {
+        const studentName = (item.student.name || '').toLowerCase();
+        const studentEmail = (item.student.email || '').toLowerCase();
+        const searchTerm = query.toLowerCase();
+        
+        return studentName.includes(searchTerm) || studentEmail.includes(searchTerm);
+      });
+    }
+    
+    setFilteredSubmissionsList(filtered);
+  };
+
+  // Handle search
+  const handleSearch = (query) => {
+    setSearchQuery(query);
+    applyFiltersAndSearch(query, filterType);
+  };
+
+  // Handle filter change
+  const handleFilterChange = (filter) => {
+    setFilterType(filter);
+    applyFiltersAndSearch(searchQuery, filter);
+  };
+
+  // Update filtered list when submissions list changes
+  React.useEffect(() => {
+    applyFiltersAndSearch(searchQuery, filterType);
+  }, [submissionsList]);
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -810,12 +1085,15 @@ export default function AssignmentsScreen() {
               // Clickable assignment card for students
               <TouchableOpacity 
                 key={assignment.id} 
-                style={styles.assignmentCard}
+                style={[
+                  styles.assignmentCard,
+                  isOverdue(assignment.dueDate) && !assignment.isSubmitted && styles.assignmentCardDisabled
+                ]}
                 onPress={() => {
                   console.log('Card clicked!');
                   openSubmissionModal(assignment);
                 }}
-                activeOpacity={0.7}
+                activeOpacity={isOverdue(assignment.dueDate) && !assignment.isSubmitted ? 1 : 0.7}
                 disabled={false}
               >
               <View style={styles.assignmentHeader}>
@@ -875,12 +1153,25 @@ export default function AssignmentsScreen() {
                     {isOverdue(assignment.dueDate) && ' (Overdue)'}
                   </Text>
                   {userRole === 'instructor' && (
-                    <TouchableOpacity 
-                      style={styles.deleteButton}
-                      onPress={() => handleDeleteAssignment(assignment.id)}
-                    >
-                      <Text style={styles.deleteButtonText}>🗑️</Text>
-                    </TouchableOpacity>
+                    <View style={styles.instructorActions}>
+                      {/* Extend deadline button - always show for testing */}
+                      <TouchableOpacity 
+                        style={styles.extendButton}
+                        onPress={() => {
+                          console.log('Extend button pressed for:', assignment.title);
+                          Alert.alert('Extend Deadline', `Extend deadline for: ${assignment.title}`);
+                          // openExtendDeadlineModal(assignment);
+                        }}
+                      >
+                        <Text style={styles.extendButtonText}>⏰</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteAssignment(assignment.id)}
+                      >
+                        <Text style={styles.deleteButtonText}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
                   )}
                 </View>
               </View>
@@ -970,12 +1261,25 @@ export default function AssignmentsScreen() {
                       Due: {formatDate(assignment.dueDate)}
                       {isOverdue(assignment.dueDate) && ' (Overdue)'}
                     </Text>
-                    <TouchableOpacity 
-                      style={styles.deleteButton}
-                      onPress={() => handleDeleteAssignment(assignment.id)}
-                    >
-                      <Text style={styles.deleteButtonText}>🗑️</Text>
-                    </TouchableOpacity>
+                    <View style={styles.instructorActions}>
+                      {assignment.dueDate && !assignment.hasNoDueDate && (
+                        <TouchableOpacity 
+                          style={styles.extendButton}
+                          onPress={() => {
+                            console.log('Extend button pressed for:', assignment.title);
+                            openExtendDeadlineModal(assignment);
+                          }}
+                        >
+                          <Text style={styles.extendButtonText}>⏰</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity 
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteAssignment(assignment.id)}
+                      >
+                        <Text style={styles.deleteButtonText}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
                 
@@ -1042,7 +1346,10 @@ export default function AssignmentsScreen() {
                 
                 {/* Instructor Actions */}
                 <View style={styles.assignmentActions}>
-                  <TouchableOpacity style={styles.viewSubmissionsButton}>
+                  <TouchableOpacity 
+                    style={styles.viewSubmissionsButton}
+                    onPress={() => viewSubmissions(assignment)}
+                  >
                     <Text style={styles.viewSubmissionsButtonText}>
                       View Submissions ({assignment.submissions?.length || 0})
                     </Text>
@@ -1115,19 +1422,54 @@ export default function AssignmentsScreen() {
 
               <View style={styles.inputRow}>
                 <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                  <Text style={styles.inputLabel}>Due Date *</Text>
-                  <TouchableOpacity
-                    style={[styles.textInput, styles.datePickerButton]}
-                    onPress={showDatePickerModal}
+                  <Text style={styles.inputLabel}>Due Date</Text>
+                  
+                  {/* No Due Date Checkbox */}
+                  <TouchableOpacity 
+                    style={styles.checkboxContainer}
+                    onPress={() => {
+                      setNoDueDate(!noDueDate);
+                      if (!noDueDate) {
+                        setNewAssignment({...newAssignment, dueDate: ''});
+                      }
+                    }}
                   >
-                    <Text style={[
-                      styles.datePickerText,
-                      !newAssignment.dueDate && styles.placeholderText
-                    ]}>
-                      {formatDisplayDate(newAssignment.dueDate)}
-                    </Text>
-                    <Text style={styles.calendarIcon}>📅</Text>
+                    <View style={[styles.checkbox, noDueDate && styles.checkboxChecked]}>
+                      {noDueDate && <Text style={styles.checkboxCheck}>✓</Text>}
+                    </View>
+                    <Text style={styles.checkboxLabel}>No due date</Text>
                   </TouchableOpacity>
+                  
+                  {/* Date Picker Button */}
+                  {!noDueDate && (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.textInput, styles.datePickerButton]}
+                        onPress={showDatePickerModal}
+                      >
+                        <Text style={[
+                          styles.datePickerText,
+                          !newAssignment.dueDate && styles.placeholderText
+                        ]}>
+                          {formatDisplayDate(newAssignment.dueDate)}
+                        </Text>
+                        <Text style={styles.calendarIcon}>📅</Text>
+                      </TouchableOpacity>
+                      
+                      {/* Time Picker Button */}
+                      {newAssignment.dueDate && (
+                        <TouchableOpacity
+                          style={[styles.textInput, styles.timePickerButton]}
+                          onPress={() => setShowTimePicker(true)}
+                        >
+                          <Text style={styles.timePickerText}>
+                            {formatDisplayTime(newAssignment.dueDate)}
+                          </Text>
+                          <Text style={styles.clockIcon}>🕐</Text>
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  )}
                 </View>
 
                 <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
@@ -1270,6 +1612,106 @@ export default function AssignmentsScreen() {
                 <Text style={styles.createButtonText}>
                   {isLoading ? 'Creating...' : 'Create Assignment'}
                 </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Extend Deadline Modal */}
+      <Modal visible={showExtendDeadlineModal} transparent={true} animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.extendDeadlineModalContainer}>
+            {/* Header */}
+            <View style={styles.extendModalHeader}>
+              <View style={styles.extendModalHeaderContent}>
+                <View style={styles.extendModalIcon}>
+                  <Text style={styles.extendModalIconText}>⏰</Text>
+                </View>
+                <Text style={styles.extendModalTitle}>Extend Deadline</Text>
+              </View>
+              <TouchableOpacity 
+                style={styles.extendModalCloseButton}
+                onPress={() => setShowExtendDeadlineModal(false)}
+              >
+                <Text style={styles.extendModalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Scrollable Content */}
+            <View style={styles.extendModalScrollContent}>
+              {/* Assignment Info Card */}
+              <View style={styles.assignmentInfoCard}>
+                <Text style={styles.assignmentInfoLabel}>Assignment</Text>
+                <Text style={styles.assignmentInfoTitle}>{selectedAssignmentToExtend?.title}</Text>
+                <View style={styles.currentDeadlineContainer}>
+                  <Text style={styles.currentDeadlineLabel}>Current deadline:</Text>
+                  <Text style={styles.currentDeadlineValue}>
+                    {selectedAssignmentToExtend?.dueDate ? formatDate(selectedAssignmentToExtend.dueDate) : 'No due date'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* New Deadline Section */}
+              <View style={styles.newDeadlineSection}>
+                <Text style={styles.sectionTitle}>Set New Deadline</Text>
+                
+                {/* Date Picker */}
+                <View style={styles.dateTimeGroup}>
+                  <Text style={styles.dateTimeLabel}>New Deadline Date</Text>
+                  <TouchableOpacity
+                    style={styles.dateTimePickerButton}
+                    onPress={() => setShowExtendDatePicker(true)}
+                  >
+                    <View style={styles.dateTimePickerContent}>
+                      <Text style={styles.dateTimePickerIcon}>📅</Text>
+                      <Text style={styles.dateTimePickerText}>
+                        {newExtendedDate.toLocaleDateString('en-US', {
+                          weekday: 'long',
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Time Picker */}
+                <View style={styles.dateTimeGroup}>
+                  <Text style={styles.dateTimeLabel}>New Deadline Time</Text>
+                  <TouchableOpacity
+                    style={styles.dateTimePickerButton}
+                    onPress={() => setShowExtendTimePicker(true)}
+                  >
+                    <View style={styles.dateTimePickerContent}>
+                      <Text style={styles.dateTimePickerIcon}>🕐</Text>
+                      <Text style={styles.dateTimePickerText}>
+                        {newExtendedDate.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            {/* Fixed Action Buttons */}
+            <View style={styles.extendModalActions}>
+              <TouchableOpacity 
+                style={styles.extendCancelButton}
+                onPress={() => setShowExtendDeadlineModal(false)}
+              >
+                <Text style={styles.extendCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.extendConfirmButton}
+                onPress={handleExtendDeadline}
+              >
+                <Text style={styles.extendConfirmButtonText}>Extend Deadline</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1577,23 +2019,245 @@ export default function AssignmentsScreen() {
                     <Text style={styles.unsubmitButtonText}>Cancel</Text>
                   </TouchableOpacity>
                   
-                  <TouchableOpacity 
-                    style={[styles.turnInButton, isSubmitting && styles.turnInButtonDisabled]}
-                    onPress={selectedAssignment.isSubmitted ? unsubmitAssignment : submitAssignment}
-                    disabled={isSubmitting}
-                  >
-                    <Text style={styles.turnInButtonText}>
-                      {isSubmitting 
-                        ? 'Processing...' 
-                        : selectedAssignment.isSubmitted 
-                          ? 'Unsubmit' 
-                          : 'Submit'}
-                    </Text>
-                  </TouchableOpacity>
+                  {isOverdue(selectedAssignment.dueDate) && !selectedAssignment.isSubmitted ? (
+                    // Show disabled button with deadline message if overdue and not submitted
+                    <View style={[styles.turnInButton, styles.turnInButtonDisabled]}>
+                      <Text style={styles.turnInButtonText}>Deadline Passed</Text>
+                    </View>
+                  ) : (
+                    // Normal submit/unsubmit button
+                    <TouchableOpacity 
+                      style={[styles.turnInButton, isSubmitting && styles.turnInButtonDisabled]}
+                      onPress={selectedAssignment.isSubmitted ? unsubmitAssignment : submitAssignment}
+                      disabled={isSubmitting}
+                    >
+                      <Text style={styles.turnInButtonText}>
+                        {isSubmitting 
+                          ? 'Processing...' 
+                          : selectedAssignment.isSubmitted 
+                            ? 'Unsubmit' 
+                            : 'Submit'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </>
           )}
+        </View>
+      </Modal>
+
+      {/* Instructor Submissions View Modal */}
+      <Modal visible={showSubmissionsModal} animationType="slide" presentationStyle="fullScreen">
+        <View style={styles.submissionModalContainer}>
+          <View style={styles.submissionModalHeader}>
+            <TouchableOpacity 
+              onPress={() => {
+                setShowSubmissionsModal(false);
+                setSearchQuery(''); // Clear search when closing
+                setFilterType('all'); // Reset filter when closing
+                setFilteredSubmissionsList([]); // Clear filtered list
+                getAssignments(); // Refresh assignments to update submission counts
+              }}
+              style={styles.submissionModalCloseButton}
+            >
+              <Text style={styles.submissionModalCloseText}>✕</Text>
+            </TouchableOpacity>
+            <Text style={styles.submissionModalTitle}>
+              {currentAssignmentSubmissions?.title} - Submissions
+            </Text>
+          </View>
+
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search students by name or email..."
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={handleSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.searchIcon}>🔍</Text>
+          </View>
+
+          {/* Filter Buttons */}
+          <View style={styles.filterContainer}>
+            <TouchableOpacity 
+              style={[styles.filterButton, filterType === 'all' && styles.filterButtonActive]}
+              onPress={() => handleFilterChange('all')}
+            >
+              <Text style={[styles.filterButtonText, filterType === 'all' && styles.filterButtonTextActive]}>
+                All ({submissionsList.length})
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.filterButton, filterType === 'submitted' && styles.filterButtonActive]}
+              onPress={() => handleFilterChange('submitted')}
+            >
+              <Text style={[styles.filterButtonText, filterType === 'submitted' && styles.filterButtonTextActive]}>
+                ✅ Submitted ({submissionsList.filter(item => item.hasSubmitted).length})
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.filterButton, filterType === 'not_submitted' && styles.filterButtonActive]}
+              onPress={() => handleFilterChange('not_submitted')}
+            >
+              <Text style={[styles.filterButtonText, filterType === 'not_submitted' && styles.filterButtonTextActive]}>
+                ⏳ Missing ({submissionsList.filter(item => !item.hasSubmitted).length})
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.submissionsScrollView}>
+            <View style={styles.submissionsContainer}>
+              <Text style={styles.submissionsStatsText}>
+                {(() => {
+                  const total = submissionsList.length;
+                  const submitted = submissionsList.filter(item => item.hasSubmitted).length;
+                  const notSubmitted = total - submitted;
+                  const showing = filteredSubmissionsList.length;
+                  
+                  if (searchQuery) {
+                    return `Showing ${showing} of ${total} students`;
+                  }
+                  
+                  switch (filterType) {
+                    case 'submitted':
+                      return `${submitted} student${submitted !== 1 ? 's' : ''} submitted`;
+                    case 'not_submitted':
+                      return `${notSubmitted} student${notSubmitted !== 1 ? 's' : ''} haven't submitted`;
+                    default:
+                      return `${submitted} of ${total} student${total !== 1 ? 's' : ''} submitted`;
+                  }
+                })()}
+              </Text>
+              
+              {filteredSubmissionsList.map((item, index) => (
+                <View key={index} style={styles.submissionItem}>
+                  <View style={styles.submissionStudentInfo}>
+                    <View style={styles.submissionStatusIndicator}>
+                      <View style={[
+                        styles.statusDot, 
+                        { backgroundColor: (() => {
+                          if (!item.hasSubmitted) return '#f44336'; // Red for not submitted
+                          if (!item.submission.submittedAt || !currentAssignmentSubmissions?.dueDate) return '#4CAF50'; // Green default
+                          
+                          const submissionDate = new Date(item.submission.submittedAt.toDate());
+                          const dueDate = new Date(currentAssignmentSubmissions.dueDate);
+                          const isLate = submissionDate > dueDate;
+                          
+                          return isLate ? '#FF9800' : '#4CAF50'; // Orange for late, Green for on time
+                        })() }
+                      ]} />
+                    </View>
+                    <Text style={styles.submissionStudentName}>
+                      {item.student.name || item.student.email}
+                    </Text>
+                  </View>
+                  
+                  {item.hasSubmitted ? (
+                    <View style={styles.submissionDetails}>
+                      <View style={styles.submissionTimestampContainer}>
+                        <Text style={styles.submissionTimestamp}>
+                          Submitted: {item.submission.submittedAt ? new Date(item.submission.submittedAt.toDate()).toLocaleString() : 'Unknown'}
+                        </Text>
+                        {(() => {
+                          if (!item.submission.submittedAt || !currentAssignmentSubmissions?.dueDate) return null;
+                          
+                          const submissionDate = new Date(item.submission.submittedAt.toDate());
+                          const dueDate = new Date(currentAssignmentSubmissions.dueDate);
+                          const isLate = submissionDate > dueDate;
+                          
+                          return (
+                            <View style={[
+                              styles.submissionStatusBadge,
+                              isLate ? styles.lateBadge : styles.onTimeBadge
+                            ]}>
+                              <Text style={[
+                                styles.submissionStatusBadgeText,
+                                isLate ? styles.lateBadgeText : styles.onTimeBadgeText
+                              ]}>
+                                {isLate ? '⏰ Late' : '✅ On Time'}
+                              </Text>
+                            </View>
+                          );
+                        })()}
+                      </View>
+                      
+                      {item.submission.text && (
+                        <View style={styles.submissionTextContainer}>
+                          <Text style={styles.submissionLabel}>Comment:</Text>
+                          <Text style={styles.submissionText}>{item.submission.text}</Text>
+                        </View>
+                      )}
+                      
+                      {(item.submission.attachedFiles?.length > 0 || item.submission.attachedImages?.length > 0) && (
+                        <View style={styles.submissionAttachmentsContainer}>
+                          <Text style={styles.submissionLabel}>Attachments:</Text>
+                          
+                          {item.submission.attachedFiles?.map((file, fileIndex) => (
+                            <TouchableOpacity
+                              key={fileIndex}
+                              style={styles.submissionAttachmentItem}
+                              onPress={() => handleAttachmentPress(file, 'file')}
+                            >
+                              <Text style={styles.submissionAttachmentIcon}>📄</Text>
+                              <Text style={styles.submissionAttachmentName}>{file.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                          
+                          {item.submission.attachedImages?.map((image, imageIndex) => (
+                            <TouchableOpacity
+                              key={imageIndex}
+                              style={styles.submissionAttachmentItem}
+                              onPress={() => handleAttachmentPress(image, 'image')}
+                            >
+                              <Text style={styles.submissionAttachmentIcon}>🖼️</Text>
+                              <Text style={styles.submissionAttachmentName}>{image.name}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <Text style={styles.notSubmittedText}>Not submitted</Text>
+                  )}
+                </View>
+              ))}
+              
+              {/* No Results Message */}
+              {filteredSubmissionsList.length === 0 && submissionsList.length > 0 && (
+                <View style={styles.noResultsContainer}>
+                  <Text style={styles.noResultsIcon}>
+                    {searchQuery ? '🔍' : filterType === 'submitted' ? '✅' : filterType === 'not_submitted' ? '⏳' : '📝'}
+                  </Text>
+                  <Text style={styles.noResultsText}>
+                    {searchQuery 
+                      ? `No students found matching "${searchQuery}"`
+                      : filterType === 'submitted' 
+                        ? 'No students have submitted yet'
+                        : filterType === 'not_submitted'
+                          ? 'All students have submitted!'
+                          : 'No students found'
+                    }
+                  </Text>
+                  <TouchableOpacity 
+                    style={styles.clearSearchButton}
+                    onPress={() => {
+                      handleSearch('');
+                      handleFilterChange('all');
+                    }}
+                  >
+                    <Text style={styles.clearSearchButtonText}>Show All</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -1605,6 +2269,37 @@ export default function AssignmentsScreen() {
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
           onChange={handleDateChange}
           minimumDate={new Date()}
+        />
+      )}
+
+      {/* Time Picker */}
+      {showTimePicker && (
+        <DateTimePicker
+          value={selectedTime}
+          mode="time"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleTimeChange}
+        />
+      )}
+
+      {/* Extend Deadline Date Picker */}
+      {showExtendDatePicker && (
+        <DateTimePicker
+          value={newExtendedDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleExtendDateChange}
+          minimumDate={new Date()}
+        />
+      )}
+
+      {/* Extend Deadline Time Picker */}
+      {showExtendTimePicker && (
+        <DateTimePicker
+          value={newExtendedDate}
+          mode="time"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleExtendTimeChange}
         />
       )}
     </View>
@@ -1704,6 +2399,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
+  assignmentCardDisabled: {
+    backgroundColor: '#f8f9fa',
+    opacity: 0.6,
+  },
   assignmentHeader: {
     marginBottom: 12,
   },
@@ -1729,20 +2428,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: 32,
   },
   assignmentDueDate: {
     fontSize: 14,
     color: '#666',
+    flex: 1,
+    marginRight: 12,
   },
   overdue: {
     color: '#f44336',
     fontWeight: 'bold',
   },
+  instructorActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  extendButton: {
+    backgroundColor: '#4A90E2',
+    borderRadius: 6,
+    padding: 6,
+    minWidth: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  extendButtonText: {
+    fontSize: 16,
+    color: '#fff',
+  },
   deleteButton: {
-    padding: 4,
+    backgroundColor: '#dc3545',
+    borderRadius: 6,
+    padding: 6,
+    minWidth: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   deleteButtonText: {
     fontSize: 16,
+    color: '#fff',
   },
   assignmentDescription: {
     fontSize: 14,
@@ -2048,6 +2774,52 @@ const styles = StyleSheet.create({
     color: '#999',
   },
   calendarIcon: {
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#4A90E2',
+    borderColor: '#4A90E2',
+  },
+  checkboxCheck: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    color: '#333',
+  },
+  timePickerButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginTop: 8,
+  },
+  timePickerText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  clockIcon: {
     fontSize: 16,
     marginLeft: 8,
   },
@@ -2571,5 +3343,439 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  
+  // Submissions View Modal Styles
+  submissionsScrollView: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  submissionsContainer: {
+    padding: 16,
+  },
+  submissionsStatsText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 20,
+    textAlign: 'center',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+  },
+  submissionItem: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  submissionStudentInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  submissionStatusIndicator: {
+    marginRight: 12,
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  submissionStudentName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+  },
+  submissionDetails: {
+    marginTop: 8,
+  },
+  submissionTimestamp: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  submissionTimestampContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  submissionStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  lateBadge: {
+    backgroundColor: '#ffebee',
+    borderWidth: 1,
+    borderColor: '#f44336',
+  },
+  onTimeBadge: {
+    backgroundColor: '#e8f5e8',
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  submissionStatusBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  lateBadgeText: {
+    color: '#f44336',
+  },
+  onTimeBadgeText: {
+    color: '#4CAF50',
+  },
+  submissionTextContainer: {
+    marginBottom: 12,
+  },
+  submissionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  submissionText: {
+    fontSize: 14,
+    color: '#666',
+    backgroundColor: '#f9f9f9',
+    padding: 8,
+    borderRadius: 6,
+  },
+  submissionAttachmentsContainer: {
+    marginTop: 8,
+  },
+  submissionAttachmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  submissionAttachmentIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  submissionAttachmentName: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+  },
+  notSubmittedText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  
+  // Search Bar Styles
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  searchIcon: {
+    fontSize: 18,
+    marginLeft: 12,
+    color: '#666',
+  },
+  
+  // Filter Buttons Styles
+  filterContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    justifyContent: 'space-around',
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  filterButtonActive: {
+    backgroundColor: '#4A90E2',
+    borderColor: '#4A90E2',
+  },
+  filterButtonText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  
+  // No Results Styles
+  noResultsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noResultsIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+    opacity: 0.5,
+  },
+  noResultsText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  clearSearchButton: {
+    backgroundColor: '#4A90E2',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  clearSearchButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  currentDeadlineText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#6c757d',
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: '#4A90E2',
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginLeft: 8,
+    alignItems: 'center',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Extend Deadline Modal Styles
+  extendDeadlineModalContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginTop: 80,
+    marginBottom: 40,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+    maxHeight: '85%',
+    flex: 1,
+  },
+  extendModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  extendModalHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  extendModalIcon: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#4A90E2',
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  extendModalIconText: {
+    fontSize: 20,
+    color: '#fff',
+  },
+  extendModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  extendModalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  extendModalCloseText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  extendModalScrollContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+  },
+  assignmentInfoCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4A90E2',
+  },
+  assignmentInfoLabel: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  assignmentInfoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  currentDeadlineContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  currentDeadlineLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginRight: 8,
+  },
+  currentDeadlineValue: {
+    fontSize: 14,
+    color: '#dc3545',
+    fontWeight: '600',
+  },
+  newDeadlineSection: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+  },
+  dateTimeGroup: {
+    marginBottom: 16,
+  },
+  dateTimeLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  dateTimePickerButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateTimePickerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  dateTimePickerIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  dateTimePickerText: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+  },
+  extendModalActions: {
+    flexDirection: 'row',
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    gap: 12,
+  },
+  extendCancelButton: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  extendCancelButtonText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  extendConfirmButton: {
+    flex: 1,
+    backgroundColor: '#4A90E2',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  extendConfirmButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });
