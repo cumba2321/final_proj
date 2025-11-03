@@ -209,13 +209,74 @@ export default function PATHclassScreen() {
     try {
       if (db && currentUser) {
         if (userRole === 'instructor') {
-          // For instructors: Delete the entire class document
+          // For instructors: Delete the entire class and all related data
           console.log('Instructor deleting class:', selectedClass.id);
           
-          // Delete the class document from Firestore
+          // First, delete all assignments and their related submissions
+          const assignmentsRef = collection(db, 'classes', selectedClass.id, 'assignments');
+          const assignmentsSnapshot = await getDocs(assignmentsRef);
+          
+          for (const assignmentDoc of assignmentsSnapshot.docs) {
+            console.log('Deleting assignment:', assignmentDoc.id);
+            
+            // Delete all submissions for this assignment
+            const submissionsRef = collection(db, 'classes', selectedClass.id, 'submissions');
+            const submissionsQuery = query(submissionsRef, where('assignmentId', '==', assignmentDoc.id));
+            const submissionsSnapshot = await getDocs(submissionsQuery);
+            
+            for (const submissionDoc of submissionsSnapshot.docs) {
+              console.log('Deleting submission:', submissionDoc.id);
+              await deleteDoc(submissionDoc.ref);
+            }
+            
+            // Delete the assignment document
+            await deleteDoc(assignmentDoc.ref);
+          }
+          
+          // Delete all remaining submissions (if any)
+          const allSubmissionsRef = collection(db, 'classes', selectedClass.id, 'submissions');
+          const allSubmissionsSnapshot = await getDocs(allSubmissionsRef);
+          for (const submissionDoc of allSubmissionsSnapshot.docs) {
+            console.log('Deleting remaining submission:', submissionDoc.id);
+            await deleteDoc(submissionDoc.ref);
+          }
+          
+          // Delete all students enrolled in the class
+          const studentsRef = collection(db, 'classes', selectedClass.id, 'students');
+          const studentsSnapshot = await getDocs(studentsRef);
+          for (const studentDoc of studentsSnapshot.docs) {
+            console.log('Deleting student enrollment:', studentDoc.id);
+            await deleteDoc(studentDoc.ref);
+          }
+          
+          // Delete all grades for this class
+          const gradesRef = collection(db, 'classes', selectedClass.id, 'grades');
+          const gradesSnapshot = await getDocs(gradesRef);
+          for (const gradeDoc of gradesSnapshot.docs) {
+            console.log('Deleting grade:', gradeDoc.id);
+            await deleteDoc(gradeDoc.ref);
+          }
+          
+          // Delete any announcements for this class
+          const announcementsRef = collection(db, 'classes', selectedClass.id, 'announcements');
+          const announcementsSnapshot = await getDocs(announcementsRef);
+          for (const announcementDoc of announcementsSnapshot.docs) {
+            console.log('Deleting announcement:', announcementDoc.id);
+            await deleteDoc(announcementDoc.ref);
+          }
+          
+          // Delete any class materials
+          const materialsRef = collection(db, 'classes', selectedClass.id, 'materials');
+          const materialsSnapshot = await getDocs(materialsRef);
+          for (const materialDoc of materialsSnapshot.docs) {
+            console.log('Deleting material:', materialDoc.id);
+            await deleteDoc(materialDoc.ref);
+          }
+          
+          // Finally, delete the class document itself
           await deleteDoc(doc(db, 'classes', selectedClass.id));
           
-          console.log('Successfully deleted class document');
+          console.log('Successfully deleted class and all related data');
         } else {
           // For students: Remove from the students array
           console.log('Student unenrolling from class:', selectedClass.id);
@@ -236,7 +297,7 @@ export default function PATHclassScreen() {
         setShowUnenrollModal(false);
         setSelectedClass(null);
         const message = userRole === 'instructor' 
-          ? 'Class deleted successfully!' 
+          ? 'Class and all related data deleted successfully!' 
           : 'Successfully unenrolled from the class!';
         Alert.alert('Success', message);
       }
@@ -645,7 +706,7 @@ export default function PATHclassScreen() {
             <View style={styles.modalBody}>
               <Text style={styles.unenrollDescription}>
                 {userRole === 'instructor' 
-                  ? `This will permanently delete "${selectedClass?.name}" and remove all students from the class. This action cannot be undone.`
+                  ? `This will permanently delete "${selectedClass?.name}" and ALL related data including:\n\n• All assignments and submissions\n• Student grades and feedback\n• Class announcements\n• Student enrollments\n• Class materials\n\nThis action cannot be undone and all data will be lost forever.`
                   : `You'll no longer have access to class materials and assignments from "${selectedClass?.name}".`
                 }
               </Text>
