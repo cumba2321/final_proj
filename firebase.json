@@ -1,0 +1,5 @@
+﻿{
+  "firestore": {
+    "rules": "FIRESTORE_RULES_CLEAN.txt"
+  }
+}

@@ -250,42 +250,6 @@ export default function ClassDetailsScreen() {
           )}
         </View>
 
-        {/* Class Information */}
-        <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Class Information</Text>
-          
-          <View style={styles.infoCard}>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Subject:</Text>
-              <Text style={styles.infoValue}>{classDetails.subject || classDetails.name}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Section:</Text>
-              <Text style={styles.infoValue}>{classDetails.section}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Instructor:</Text>
-              <Text style={styles.infoValue}>{classDetails.teacher}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Class Code:</Text>
-              <Text style={styles.infoValue}>{classDetails.code}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Students Enrolled:</Text>
-              <Text style={styles.infoValue}>{classDetails.studentCount || 0}</Text>
-            </View>
-            {classDetails.createdAt && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Created:</Text>
-                <Text style={styles.infoValue}>
-                  {new Date(classDetails.createdAt.seconds * 1000).toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
         {/* Student Actions */}
         {userRole === 'student' && (
           <View style={styles.dangerSection}>
@@ -448,40 +412,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#ccc',
     marginLeft: 8,
-  },
-  infoSection: {
-    marginBottom: 24,
-  },
-  infoCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  infoValue: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '600',
-    textAlign: 'right',
-    flex: 1,
-    marginLeft: 16,
   },
   dangerSection: {
     marginBottom: 32,

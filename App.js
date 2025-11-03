@@ -10,10 +10,8 @@ import WelcomeScreen from './screens/WelcomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import SignUpScreen from './screens/SignUpScreen';
 import HomeScreen from './screens/HomeScreen';
-import ClassworkScreen from './screens/ClassworkScreen';
 import PeopleScreen from './screens/PeopleScreen';
 import InstructorFeedbackScreen from './screens/InstructorFeedbackScreen';
-import CampusAnnouncementScreen from './screens/CampusAnnouncementScreen';
 import SectionAnnouncementScreen from './screens/SectionAnnouncementScreen';
 import ClassWallScreen from './screens/ClassWallScreen';
 import ClassDetailsScreen from './screens/ClassDetailsScreen';
@@ -22,9 +20,7 @@ import GradesScreen from './screens/GradesScreen';
 import MyProfileScreen from './screens/MyProfileScreen';
 import EditProfileScreen from './screens/EditProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
-import ProgressScreen from './screens/ProgressScreen';
 import PATHclassScreen from './screens/PATHclassScreen';
-import CleanupScreen from './screens/CleanupScreen';
 import ManageStudentsScreen from './screens/ManageStudentsScreen';
 import { StatusBar } from 'expo-status-bar';
 
@@ -66,26 +62,6 @@ function MainTabs() {
             />
           ),
           
-        }}
-      />
-
-      <Tab.Screen
-        name="Classwork"
-        component={ClassworkScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Image
-              source={
-                focused
-                  ? require('./assets/CA.png')
-                  : require('./assets/CN.png')
-              }
-              style={{
-                width: 24,
-                height: 24,
-              }}
-            />
-          ),
         }}
       />
 
@@ -145,15 +121,12 @@ export default function App() {
             <Stack.Screen name="Assignments" component={AssignmentsScreen} />
             <Stack.Screen name="Grades" component={GradesScreen} />
             <Stack.Screen name="InstructorFeedback" component={InstructorFeedbackScreen} />
-            <Stack.Screen name="CampusAnnouncement" component={CampusAnnouncementScreen} />
             <Stack.Screen name="SectionAnnouncement" component={SectionAnnouncementScreen} />
             <Stack.Screen name="ClassWall" component={ClassWallScreen} />
             <Stack.Screen name="MyProfile" component={MyProfileScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
-            <Stack.Screen name="Progress" component={ProgressScreen} />
             <Stack.Screen name="ManageStudents" component={ManageStudentsScreen} />
-            <Stack.Screen name="Cleanup" component={CleanupScreen} />
           </>
         ) : (
           <>

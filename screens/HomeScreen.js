@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Alert, TextInput, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Alert, TextInput, RefreshControl, Share } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
@@ -29,6 +29,13 @@ export default function HomeScreen() {
   const [selectedPostForComment, setSelectedPostForComment] = useState(null);
   const [postComments, setPostComments] = useState([]);
   const [newComment, setNewComment] = useState('');
+  
+  // Edit post functionality
+  const [showEditPostModal, setShowEditPostModal] = useState(false);
+  const [editPostText, setEditPostText] = useState('');
+  const [editingPost, setEditingPost] = useState(null);
+  const [editSelectedImages, setEditSelectedImages] = useState([]);
+  const [editSelectedFiles, setEditSelectedFiles] = useState([]);
   
   const navigation = useNavigation();
 
@@ -65,6 +72,172 @@ export default function HomeScreen() {
     } catch (error) {
       console.error('Error deleting post:', error);
       Alert.alert('Error', 'Failed to delete post');
+    }
+  };
+
+  // Edit post functions
+  const openEditPostModal = () => {
+    if (!selectedPost) return;
+    setEditingPost(selectedPost);
+    setEditPostText(selectedPost.message || '');
+    // Initialize with existing media if any
+    setEditSelectedImages(selectedPost.image ? [{ uri: selectedPost.image, name: 'image.jpg', size: 0 }] : []);
+    setEditSelectedFiles(selectedPost.files || []);
+    setShowEditPostModal(true);
+    closePostMenu();
+  };
+
+  const closeEditPostModal = () => {
+    setShowEditPostModal(false);
+    setEditingPost(null);
+    setEditPostText('');
+    setEditSelectedImages([]);
+    setEditSelectedFiles([]);
+  };
+
+  const submitEditPost = async () => {
+    if (!editingPost || (!editPostText.trim() && editSelectedImages.length === 0 && editSelectedFiles.length === 0)) {
+      Alert.alert('Error', 'Please add some content to your post');
+      return;
+    }
+
+    try {
+      const updatedData = {
+        message: editPostText,
+        image: editSelectedImages.length > 0 ? editSelectedImages[0].uri : null,
+        files: editSelectedFiles.map(file => ({
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          uri: file.uri
+        })),
+        updatedAt: serverTimestamp()
+      };
+
+      // Update in Firestore if database is available
+      if (db) {
+        await updateDoc(doc(db, 'classWall', editingPost.id), updatedData);
+      }
+
+      // Update local state
+      setClassWallPosts(prevPosts => 
+        prevPosts.map(post => 
+          post.id === editingPost.id 
+            ? { 
+                ...post, 
+                message: editPostText, 
+                image: updatedData.image,
+                files: updatedData.files,
+                updatedAt: new Date() 
+              }
+            : post
+        )
+      );
+
+      closeEditPostModal();
+      Alert.alert('Success', 'Post updated successfully!');
+
+      // Refresh posts to ensure sync
+      if (db) {
+        await fetchClassWallPosts();
+      }
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post');
+    }
+  };
+
+  // Edit post media handlers
+  const handleEditImagePicker = async () => {
+    try {
+      // Request permission
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (permissionResult.granted === false) {
+        Alert.alert('Permission Required', 'Please allow access to your photo library to add images.');
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
+        allowsMultipleSelection: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const imageData = {
+          uri: asset.uri,
+          name: asset.fileName || `image_${Date.now()}.jpg`,
+          size: asset.fileSize || 0,
+          type: asset.type || 'image/jpeg'
+        };
+        
+        setEditSelectedImages([imageData]);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const handleEditCameraPicker = async () => {
+    try {
+      // Request camera permission
+      const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (cameraPermission.granted === false) {
+        Alert.alert('Permission Required', 'Please allow camera access to take photos.');
+        return;
+      }
+
+      // Launch camera
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const imageData = {
+          uri: asset.uri,
+          name: `photo_${Date.now()}.jpg`,
+          size: asset.fileSize || 0,
+          type: 'image/jpeg'
+        };
+        
+        setEditSelectedImages([imageData]);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const handleEditFilePicker = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        const fileData = {
+          uri: file.uri,
+          name: file.name,
+          size: file.size,
+          type: file.mimeType || 'application/octet-stream'
+        };
+        
+        setEditSelectedFiles(prev => [...prev, fileData]);
+      }
+    } catch (error) {
+      console.error('Error picking file:', error);
+      Alert.alert('Error', 'Failed to pick file');
     }
   };
 
@@ -126,9 +299,27 @@ export default function HomeScreen() {
     }
 
     try {
+      // Get the latest user data including avatar
+      let userAvatar = currentUser?.photoURL || null;
+      
+      // Try to get avatar from Firestore user document
+      if (currentUser?.uid && db) {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            userAvatar = userData.photoURL || userData.avatar || currentUser?.photoURL || null;
+          }
+        } catch (error) {
+          console.log('Could not fetch user avatar from Firestore:', error);
+        }
+      }
+      
       const commentData = {
         author: currentUser?.displayName || currentUser?.email || 'You',
         authorId: currentUser?.uid || 'anonymous',
+        authorAvatar: userAvatar,
         role: userRole === 'instructor' ? 'Instructor' : 'Student',
         message: newComment.trim(),
         createdAt: new Date()
@@ -277,6 +468,67 @@ export default function HomeScreen() {
     }
   };
 
+  // Share function
+  const handleShare = async (post) => {
+    try {
+      let shareContent = `Check out this post by ${post.author} (${post.role}):\n\n"${post.message}"`;
+      
+      // Add timestamp info
+      if (post.timestamp) {
+        shareContent += `\n\nPosted: ${post.timestamp}`;
+      }
+      
+      // Add attachments info if they exist
+      if (post.files && post.files.length > 0) {
+        shareContent += `\n\nAttachments: ${post.files.length} file(s)`;
+        // List file names
+        post.files.forEach((file, index) => {
+          if (index < 3) { // Show first 3 files
+            shareContent += `\n- ${file.name}`;
+          }
+        });
+        if (post.files.length > 3) {
+          shareContent += `\n- and ${post.files.length - 3} more...`;
+        }
+      }
+      
+      if (post.image) {
+        shareContent += '\n\n📷 Includes an image';
+      }
+      
+      shareContent += '\n\n📚 Shared from PATHFit Class Wall\n#PATHFit #ClassWall #Education';
+      
+      const shareOptions = {
+        message: shareContent,
+        title: `PATHFit Post by ${post.author}`,
+      };
+
+      // If there's an image, try to include it
+      if (post.image) {
+        shareOptions.url = post.image;
+      }
+      
+      const result = await Share.share(shareOptions);
+
+      if (result.action === Share.sharedAction) {
+        if (result.activityType) {
+          console.log('Shared via:', result.activityType);
+          // You could track sharing analytics here
+        } else {
+          console.log('Post shared successfully');
+        }
+        
+        // Optional: Show success message
+        Alert.alert('Success', 'Post shared successfully!');
+      } else if (result.action === Share.dismissedAction) {
+        console.log('Share dismissed by user');
+      }
+    } catch (error) {
+      console.error('Error sharing post:', error);
+      Alert.alert('Error', 'Failed to share post. Please try again.');
+    }
+  };
+
   // Helper function to check if current user liked a post
   const isPostLiked = (post) => {
     const currentUserId = currentUser?.uid;
@@ -295,7 +547,17 @@ export default function HomeScreen() {
   };
 
   // New post functions
-  const openNewPostModal = () => {
+  const openNewPostModal = async () => {
+    // Refresh current user data to get latest avatar
+    const user = auth.currentUser;
+    if (user) {
+      try {
+        await user.reload();
+        setCurrentUser({ ...user });
+      } catch (error) {
+        console.log('Could not refresh user data:', error);
+      }
+    }
     setShowNewPostModal(true);
   };
 
@@ -405,10 +667,28 @@ export default function HomeScreen() {
     }
 
     try {
+      // Get the latest user data including avatar
+      let userAvatar = currentUser?.photoURL || null;
+      
+      // Try to get avatar from Firestore user document
+      if (currentUser?.uid && db) {
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            userAvatar = userData.photoURL || userData.avatar || currentUser?.photoURL || null;
+          }
+        } catch (error) {
+          console.log('Could not fetch user avatar from Firestore:', error);
+        }
+      }
+      
       // Create new post object
       const newPostData = {
         author: currentUser?.displayName || currentUser?.email || 'You',
         authorId: currentUser?.uid || 'anonymous',
+        authorAvatar: userAvatar,
         role: userRole === 'instructor' ? 'Instructor' : 'Student',
         message: newPostText,
         likes: 0,
@@ -492,6 +772,13 @@ export default function HomeScreen() {
   // Fetch ClassWall posts
   const fetchClassWallPosts = async () => {
     try {
+      // Check if user is authenticated before fetching
+      if (!auth.currentUser) {
+        console.log('User not authenticated, skipping ClassWall fetch');
+        setClassWallPosts([]);
+        return;
+      }
+
       if (db) {
         const postsCollection = collection(db, 'classWall');
         const postsSnapshot = await getDocs(postsCollection);
@@ -587,6 +874,12 @@ export default function HomeScreen() {
     if (db) {
       const postsCollection = collection(db, 'classWall');
       unsubscribePosts = onSnapshot(postsCollection, (snapshot) => {
+        // Check if user is still authenticated when snapshot arrives
+        if (!auth.currentUser) {
+          console.log('User not authenticated, skipping snapshot processing');
+          return;
+        }
+        
         const postsData = snapshot.docs.map((doc, index) => {
           const data = doc.data();
           return {
@@ -682,13 +975,9 @@ export default function HomeScreen() {
   const menuItems = [
     'Dashboard',
     'PATHclass',
-    'Section Task',
-    'Section Announcement',
-    'Campus Announcement',
+    'Announcement',
     'My Events',
-    'Attendance',
-    'Progress',
-    'Cleanup (Debug)'
+    'Attendance'
   ];
 
   return (
@@ -726,14 +1015,18 @@ export default function HomeScreen() {
           onPress={openNewPostModal}
         >
           <View style={styles.whatsOnYourMindContent}>
-            <View style={[
-              styles.userProfileIcon,
-              userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
-            ]}>
-              <Text style={styles.userProfileIconText}>
-                {userRole === 'instructor' ? '👨‍🏫' : '👤'}
-              </Text>
-            </View>
+            {currentUser?.photoURL ? (
+              <Image source={{ uri: currentUser.photoURL }} style={styles.userProfileAvatar} />
+            ) : (
+              <View style={[
+                styles.userProfileIcon,
+                userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+              ]}>
+                <Text style={styles.userProfileIconText}>
+                  {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || (userRole === 'instructor' ? '👨‍🏫' : '👤')}
+                </Text>
+              </View>
+            )}
             <Text style={styles.whatsOnYourMindText}>“What’s your PATHFit update today?”</Text>
           </View>
         </TouchableOpacity>
@@ -741,14 +1034,18 @@ export default function HomeScreen() {
         {classWallPosts.map((post, index) => (
           <View key={post.id || `post-${index}-${Date.now()}`} style={styles.postCard}>
             <View style={styles.postHeader}>
-              <View style={[
-                styles.profileIcon,
-                post.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
-              ]}>
-                <Text style={styles.profileIconText}>
-                  {post.role === 'Instructor' ? '�‍🏫' : '�👤'}
-                </Text>
-              </View>
+              {post.authorAvatar ? (
+                <Image source={{ uri: post.authorAvatar }} style={styles.postAvatar} />
+              ) : (
+                <View style={[
+                  styles.profileIcon,
+                  post.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
+                ]}>
+                  <Text style={styles.profileIconText}>
+                    {post.author?.charAt(0)?.toUpperCase() || (post.role === 'Instructor' ? '👨‍🏫' : '👤')}
+                  </Text>
+                </View>
+              )}
               <View style={styles.postInfo}>
                 <View style={styles.authorRow}>
                   <Text style={styles.authorName}>{post.author}</Text>
@@ -832,7 +1129,10 @@ export default function HomeScreen() {
                 />
                 <Text style={styles.actionCount}>{post.comments || 0}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionButton}>
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => handleShare(post)}
+              >
                <Image
                   source={require('../assets/S.png')}
                   style={styles.actionIconImage}
@@ -870,14 +1170,18 @@ export default function HomeScreen() {
             
             <ScrollView style={styles.newPostContent}>
               <View style={styles.newPostAuthor}>
-                <View style={[
-                  styles.profileIcon,
-                  userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
-                ]}>
-                  <Text style={styles.profileIconText}>
-                    {userRole === 'instructor' ? '👨‍🏫' : '👤'}
-                  </Text>
-                </View>
+                {currentUser?.photoURL ? (
+                  <Image source={{ uri: currentUser.photoURL }} style={styles.postAvatar} />
+                ) : (
+                  <View style={[
+                    styles.profileIcon,
+                    userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+                  ]}>
+                    <Text style={styles.profileIconText}>
+                      {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || (userRole === 'instructor' ? '👨‍🏫' : '👤')}
+                    </Text>
+                  </View>
+                )}
                 <View>
                   <Text style={styles.authorName}>
                     {currentUser?.displayName || currentUser?.email || 'You'}
@@ -982,9 +1286,22 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
             
-            <TouchableOpacity 
-              style={[styles.postMenuOption, styles.deleteOption]} 
-              onPress={() => {
+            {/* Only show Edit option if current user is the author */}
+            {selectedPost && selectedPost.authorId === currentUser?.uid && (
+              <TouchableOpacity 
+                style={styles.postMenuOption} 
+                onPress={openEditPostModal}
+              >
+                <Text style={styles.postMenuOptionIcon}>✏️</Text>
+                <Text style={styles.postMenuOptionText}>Edit Post</Text>
+              </TouchableOpacity>
+            )}
+            
+            {/* Only show Delete option if current user is the author or is an instructor */}
+            {selectedPost && (selectedPost.authorId === currentUser?.uid || userRole === 'instructor') && (
+              <TouchableOpacity 
+                style={[styles.postMenuOption, styles.deleteOption]} 
+                onPress={() => {
                 Alert.alert(
                   'Delete Post',
                   'Are you sure you want to delete this post? This action cannot be undone.',
@@ -998,6 +1315,7 @@ export default function HomeScreen() {
               <Text style={styles.postMenuOptionIcon}>🗑️</Text>
               <Text style={[styles.postMenuOptionText, styles.deleteOptionText]}>Delete Post</Text>
             </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -1024,14 +1342,18 @@ export default function HomeScreen() {
               ) : (
                 postComments.map((comment, index) => (
                   <View key={comment.id || `comment-${index}-${Date.now()}`} style={styles.commentItem}>
-                    <View style={[
-                      styles.commentProfileIcon,
-                      comment.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
-                    ]}>
-                      <Text style={styles.commentProfileIconText}>
-                        {comment.role === 'Instructor' ? '👨‍🏫' : '👤'}
-                      </Text>
-                    </View>
+                    {comment.authorAvatar ? (
+                      <Image source={{ uri: comment.authorAvatar }} style={styles.commentAvatar} />
+                    ) : (
+                      <View style={[
+                        styles.commentProfileIcon,
+                        comment.role === 'Instructor' ? styles.instructorIcon : styles.studentIcon
+                      ]}>
+                        <Text style={styles.commentProfileIconText}>
+                          {comment.author?.charAt(0)?.toUpperCase() || (comment.role === 'Instructor' ? '👨‍🏫' : '👤')}
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.commentContent}>
                       <View style={styles.commentHeader}>
                         <Text style={styles.commentAuthor}>{comment.author}</Text>
@@ -1055,14 +1377,18 @@ export default function HomeScreen() {
             {/* Add Comment Section */}
             <View style={styles.addCommentSection}>
               <View style={styles.addCommentContainer}>
-                <View style={[
-                  styles.commentProfileIcon,
-                  userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
-                ]}>
-                  <Text style={styles.commentProfileIconText}>
-                    {userRole === 'instructor' ? '👨‍🏫' : '👤'}
-                  </Text>
-                </View>
+                {currentUser?.photoURL ? (
+                  <Image source={{ uri: currentUser.photoURL }} style={styles.commentAvatar} />
+                ) : (
+                  <View style={[
+                    styles.commentProfileIcon,
+                    userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+                  ]}>
+                    <Text style={styles.commentProfileIconText}>
+                      {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || (userRole === 'instructor' ? '👨‍🏫' : '👤')}
+                    </Text>
+                  </View>
+                )}
                 <TextInput
                   style={styles.commentInput}
                   placeholder="Write a comment..."
@@ -1087,6 +1413,124 @@ export default function HomeScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Post Modal */}
+      <Modal visible={showEditPostModal} transparent={true} animationType="slide">
+        <View style={styles.newPostOverlay}>
+          <View style={styles.newPostModal}>
+            <View style={styles.newPostHeader}>
+              <Text style={styles.newPostTitle}>Edit Post</Text>
+              <TouchableOpacity onPress={closeEditPostModal}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.newPostContent}>
+              <View style={styles.newPostAuthor}>
+                {currentUser?.photoURL ? (
+                  <Image source={{ uri: currentUser.photoURL }} style={styles.postAvatar} />
+                ) : (
+                  <View style={[
+                    styles.profileIcon,
+                    userRole === 'instructor' ? styles.instructorIcon : styles.studentIcon
+                  ]}>
+                    <Text style={styles.profileIconText}>
+                      {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || (userRole === 'instructor' ? '👨‍🏫' : '👤')}
+                    </Text>
+                  </View>
+                )}
+                <View>
+                  <Text style={styles.authorName}>
+                    {currentUser?.displayName || currentUser?.email || 'You'}
+                  </Text>
+                  <Text style={[
+                    styles.roleTag,
+                    userRole === 'instructor' ? styles.instructorTag : styles.studentTag
+                  ]}>
+                    {userRole === 'instructor' ? 'Instructor' : 'Student'}
+                  </Text>
+                </View>
+              </View>
+
+              <TextInput
+                style={styles.newPostTextInput}
+                placeholder="Edit your post..."
+                placeholderTextColor="#888"
+                multiline={true}
+                value={editPostText}
+                onChangeText={setEditPostText}
+                textAlignVertical="top"
+              />
+
+              {/* Media Preview */}
+              {editSelectedImages.length > 0 && (
+                <View style={styles.mediaPreview}>
+                  <Text style={styles.mediaPreviewLabel}>Images ({editSelectedImages.length}):</Text>
+                  {editSelectedImages.map((image, index) => (
+                    <View key={index} style={styles.mediaPreviewItem}>
+                      <Image source={{ uri: image.uri }} style={styles.previewThumbnail} />
+                      <View style={styles.mediaPreviewInfo}>
+                        <Text style={styles.mediaPreviewText} numberOfLines={1}>{image.name}</Text>
+                        <Text style={styles.mediaPreviewSize}>{formatFileSize(image.size)}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => setEditSelectedImages(prev => prev.filter((_, i) => i !== index))}
+                        style={styles.removeMediaButtonContainer}
+                      >
+                        <Text style={styles.removeMediaButton}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {editSelectedFiles.length > 0 && (
+                <View style={styles.mediaPreview}>
+                  <Text style={styles.mediaPreviewLabel}>Files ({editSelectedFiles.length}):</Text>
+                  {editSelectedFiles.map((file, index) => (
+                    <View key={index} style={styles.mediaPreviewItem}>
+                      <View style={styles.fileIconContainer}>
+                        <Text style={styles.filePreviewIcon}>{getFileIcon(file.name)}</Text>
+                      </View>
+                      <View style={styles.mediaPreviewInfo}>
+                        <Text style={styles.mediaPreviewText} numberOfLines={1}>{file.name}</Text>
+                        <Text style={styles.mediaPreviewSize}>{formatFileSize(file.size)}</Text>
+                      </View>
+                      <TouchableOpacity 
+                        onPress={() => setEditSelectedFiles(prev => prev.filter((_, i) => i !== index))}
+                        style={styles.removeMediaButtonContainer}
+                      >
+                        <Text style={styles.removeMediaButton}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.newPostActions}>
+              <View style={styles.mediaButtons}>
+                <TouchableOpacity style={styles.mediaButton} onPress={handleEditCameraPicker}>
+                  <Text style={styles.mediaButtonIcon}>📷</Text>
+                  <Text style={styles.mediaButtonText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.mediaButton} onPress={handleEditImagePicker}>
+                  <Text style={styles.mediaButtonIcon}>🖼️</Text>
+                  <Text style={styles.mediaButtonText}>Gallery</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.mediaButton} onPress={handleEditFilePicker}>
+                  <Text style={styles.mediaButtonIcon}>📎</Text>
+                  <Text style={styles.mediaButtonText}>File</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <TouchableOpacity style={styles.submitPostButton} onPress={submitEditPost}>
+                <Text style={styles.submitPostButtonText}>Update</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -1139,20 +1583,8 @@ export default function HomeScreen() {
                       case 'PATHclass':
                         navigation.navigate('PATHclass');
                         break;
-                      case 'Section Task':
-                        navigation.navigate('Classwork');
-                        break;
-                      case 'Section Announcement':
+                      case 'Announcement':
                         navigation.navigate('SectionAnnouncement');
-                        break;
-                      case 'Campus Announcement':
-                        navigation.navigate('CampusAnnouncement');
-                        break;
-                      case 'Progress':
-                        navigation.navigate('Progress');
-                        break;
-                      case 'Cleanup (Debug)':
-                        navigation.navigate('Cleanup');
                         break;
                       case 'Attendance':
                         // Add navigation when attendance screen is created
@@ -1305,6 +1737,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
+  },
+  userProfileAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     marginRight: 12,
   },
   userProfileIconText: {
@@ -1507,6 +1945,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#E75C1A',
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
+  },
+  postAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     marginRight: 12,
   },
   profileIconText: {
@@ -1928,6 +2372,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
+  },
+  commentAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     marginRight: 12,
   },
   commentProfileIconText: {

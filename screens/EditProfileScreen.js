@@ -11,8 +11,9 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
 import { updateProfile } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function EditProfileScreen() {
@@ -20,16 +21,38 @@ export default function EditProfileScreen() {
   const [user, setUser] = useState(null);
   const [displayName, setDisplayName] = useState('');
   const [photoURL, setPhotoURL] = useState('');
+  const [course, setCourse] = useState('');
+  const [phone, setPhone] = useState('');
+  const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const currentUser = auth.currentUser;
-    if (currentUser) {
-      setUser(currentUser);
-      setDisplayName(currentUser.displayName || '');
-      setPhotoURL(currentUser.photoURL || '');
-    }
+    const loadUserData = async () => {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        setUser(currentUser);
+        setDisplayName(currentUser.displayName || '');
+        setPhotoURL(currentUser.photoURL || '');
+        
+        // Load additional user data from Firestore
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setCourse(userData.course || '');
+            setPhone(userData.phone || '');
+            setBio(userData.bio || '');
+          }
+        } catch (error) {
+          console.error('Error loading user data:', error);
+        }
+      }
+    };
+    
+    loadUserData();
   }, []);
 
   const pickImage = async () => {
@@ -100,10 +123,25 @@ export default function EditProfileScreen() {
 
     setSaving(true);
     try {
+      // Update Firebase Auth profile
       await updateProfile(user, {
         displayName: displayName.trim(),
         photoURL: photoURL,
       });
+
+      // Update Firestore user document
+      const userDocRef = doc(db, 'users', user.uid);
+      await setDoc(userDocRef, {
+        name: displayName.trim(),
+        displayName: displayName.trim(),
+        email: user.email,
+        course: course.trim(),
+        phone: phone.trim(),
+        bio: bio.trim(),
+        photoURL: photoURL,
+        avatar: photoURL,
+        updatedAt: new Date()
+      }, { merge: true });
 
       Alert.alert('Success', 'Profile updated successfully!', [
         { text: 'OK', onPress: () => navigation.goBack() }
@@ -142,7 +180,7 @@ export default function EditProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Avatar Section */}
         <View style={styles.avatarSection}>
           <TouchableOpacity onPress={showImagePicker} style={styles.avatarContainer}>
@@ -171,6 +209,7 @@ export default function EditProfileScreen() {
               value={displayName}
               onChangeText={setDisplayName}
               placeholder="Enter your name"
+              placeholderTextColor="#999"
               maxLength={50}
             />
           </View>
@@ -181,19 +220,59 @@ export default function EditProfileScreen() {
               style={[styles.input, styles.inputDisabled]}
               value={user.email}
               editable={false}
-              placeholder="Email cannot be changed"
+              placeholderTextColor="#999"
             />
             <Text style={styles.hint}>Email cannot be changed</Text>
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Course</Text>
+            <TextInput
+              style={styles.input}
+              value={course}
+              onChangeText={setCourse}
+              placeholder="Enter your course"
+              placeholderTextColor="#999"
+              maxLength={100}
+            />
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Phone</Text>
+            <TextInput
+              style={styles.input}
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="Enter your phone number"
+              placeholderTextColor="#999"
+              keyboardType="phone-pad"
+              maxLength={20}
+            />
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={styles.label}>Bio</Text>
+            <TextInput
+              style={[styles.input, styles.bioInput]}
+              value={bio}
+              onChangeText={setBio}
+              placeholder="Tell us about yourself..."
+              placeholderTextColor="#999"
+              multiline={true}
+              numberOfLines={4}
+              textAlignVertical="top"
+              maxLength={500}
+            />
           </View>
         </View>
 
         {/* Action Buttons */}
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.button} onPress={saveProfile} disabled={saving}>
+          <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saving}>
             {saving ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Save Changes</Text>
+              <Text style={styles.saveButtonText}>Save Changes</Text>
             )}
           </TouchableOpacity>
           
@@ -207,121 +286,228 @@ export default function EditProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  centered: { justifyContent: 'center', alignItems: 'center' },
-  errorText: { fontSize: 16, color: '#666', marginBottom: 20 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f8f9fa' 
+  },
+  centered: { 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  errorText: { 
+    fontSize: 16, 
+    color: '#666', 
+    marginBottom: 20 
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 40,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingTop: 50,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  backButton: { padding: 8 },
-  backIcon: { fontSize: 24, color: '#333' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  saveText: { fontSize: 16, fontWeight: 'bold', color: '#E75C1A' },
-  saveTextDisabled: { color: '#ccc' },
-  content: { flex: 1 },
+  backButton: { 
+    padding: 8,
+    borderRadius: 20,
+  },
+  backIcon: { 
+    fontSize: 24, 
+    color: '#333',
+    fontWeight: '600',
+  },
+  headerTitle: { 
+    fontSize: 20, 
+    fontWeight: '700', 
+    color: '#333' 
+  },
+  saveText: { 
+    fontSize: 16, 
+    fontWeight: '700', 
+    color: '#E75C1A' 
+  },
+  saveTextDisabled: { 
+    color: '#ccc' 
+  },
+  content: { 
+    flex: 1 
+  },
   avatarSection: {
     alignItems: 'center',
     paddingVertical: 32,
     backgroundColor: '#fff',
     marginBottom: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: 16,
   },
   avatar: { 
-    width: 120, 
-    height: 120, 
-    borderRadius: 60,
-    borderWidth: 3,
+    width: 110, 
+    height: 110, 
+    borderRadius: 55,
+    borderWidth: 4,
     borderColor: '#E75C1A',
   },
   avatarPlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
     backgroundColor: '#E75C1A',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
+    borderWidth: 4,
     borderColor: '#E75C1A',
+    elevation: 4,
+    shadowColor: '#E75C1A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
-  avatarInitial: { color: '#fff', fontSize: 36, fontWeight: '700' },
+  avatarInitial: { 
+    color: '#fff', 
+    fontSize: 40, 
+    fontWeight: '700' 
+  },
   cameraIcon: {
     position: 'absolute',
     bottom: 0,
     right: 0,
     backgroundColor: '#fff',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
+    borderRadius: 18,
+    width: 36,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: '#E75C1A',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
   },
-  cameraIconText: { fontSize: 18 },
-  avatarHint: { fontSize: 14, color: '#666', marginTop: 8 },
-  form: { paddingHorizontal: 16 },
-  fieldContainer: { marginBottom: 20 },
+  cameraIconText: { 
+    fontSize: 16 
+  },
+  avatarHint: { 
+    fontSize: 14, 
+    color: '#666', 
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  form: { 
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  fieldContainer: { 
+    marginBottom: 24,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+  },
   label: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    color: '#333', 
-    marginBottom: 8 
+    fontSize: 14, 
+    fontWeight: '700', 
+    color: '#444', 
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
     fontSize: 16,
+    color: '#333',
+    paddingVertical: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+    fontWeight: '500',
   },
   inputDisabled: {
-    backgroundColor: '#f5f5f5',
-    color: '#999',
+    color: '#888',
+    borderBottomColor: 'transparent',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  bioInput: {
+    height: 100,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+    textAlignVertical: 'top',
+    paddingTop: 8,
   },
   hint: { 
     fontSize: 12, 
-    color: '#999', 
-    marginTop: 4 
+    color: '#888', 
+    marginTop: 12,
+    fontStyle: 'italic',
+    backgroundColor: '#f8f9fa',
+    padding: 8,
+    borderRadius: 8,
+    textAlign: 'center',
   },
   actions: { 
-    paddingHorizontal: 16, 
-    paddingVertical: 24 
+    paddingHorizontal: 20, 
+    paddingVertical: 24,
+    backgroundColor: '#f8f9fa',
+    paddingBottom: 40,
   },
-  button: {
+  saveButton: {
     backgroundColor: '#E75C1A',
-    padding: 16,
-    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#E75C1A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  buttonText: { 
+  saveButtonText: { 
     color: '#fff', 
     fontSize: 16, 
-    fontWeight: 'bold' 
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   cancelButton: {
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    borderWidth: 2,
+    borderColor: '#e1e5e9',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
   },
   cancelButtonText: { 
     color: '#666', 
     fontSize: 16, 
-    fontWeight: '600' 
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 });

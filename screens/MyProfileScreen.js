@@ -1,36 +1,76 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 export default function MyProfileScreen() {
   const navigation = useNavigation();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const refreshUserData = () => {
+  const refreshUserData = async () => {
     const currentUser = auth.currentUser;
     if (currentUser) {
-      // Force reload the user to get latest data
-      currentUser.reload().then(() => {
+      try {
+        // Force reload the user to get latest data
+        await currentUser.reload();
+        
+        // Fetch additional user data from Firestore
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userDocRef);
+        
+        let userData = {
+          name: currentUser.displayName || 'User',
+          email: currentUser.email || 'No email',
+          course: 'No course specified',
+          phone: 'No phone number',
+          bio: 'No bio available',
+          joinedDate: 'Unknown',
+          avatar: currentUser.photoURL,
+          uid: currentUser.uid
+        };
+        
+        if (userDoc.exists()) {
+          const firestoreData = userDoc.data();
+          
+          // Handle different date formats (ISO string vs Firestore timestamp)
+          let joinedDate = 'Unknown';
+          if (firestoreData.createdAt) {
+            if (typeof firestoreData.createdAt === 'string') {
+              // ISO string format
+              joinedDate = new Date(firestoreData.createdAt).toLocaleDateString();
+            } else if (firestoreData.createdAt.seconds) {
+              // Firestore timestamp format
+              joinedDate = new Date(firestoreData.createdAt.seconds * 1000).toLocaleDateString();
+            }
+          }
+          
+          userData = {
+            ...userData,
+            course: firestoreData.course || 'No course specified',
+            phone: firestoreData.phone || 'No phone number',
+            bio: firestoreData.bio || 'No bio available',
+            joinedDate: joinedDate,
+          };
+        }
+        
+        setUser(userData);
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        // Fallback to basic data if Firestore fails
         setUser({
           name: currentUser.displayName || 'User',
           email: currentUser.email || 'No email',
-          course: 'BS Exercise Science',
+          course: 'No course specified',
+          phone: 'No phone number',
+          bio: 'No bio available',
+          joinedDate: 'Unknown',
           avatar: currentUser.photoURL,
           uid: currentUser.uid
         });
-      }).catch(() => {
-        // Fallback to current data if reload fails
-        setUser({
-          name: currentUser.displayName || 'User',
-          email: currentUser.email || 'No email',
-          course: 'BS Exercise Science',
-          avatar: currentUser.photoURL,
-          uid: currentUser.uid
-        });
-      });
+      }
     } else {
       setUser(null);
     }
@@ -38,15 +78,63 @@ export default function MyProfileScreen() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        setUser({
-          name: currentUser.displayName || 'User',
-          email: currentUser.email || 'No email',
-          course: 'BS Exercise Science',
-          avatar: currentUser.photoURL,
-          uid: currentUser.uid
-        });
+        try {
+          // Fetch additional user data from Firestore
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          let userData = {
+            name: currentUser.displayName || 'User',
+            email: currentUser.email || 'No email',
+            course: 'No course specified',
+            phone: 'No phone number',
+            bio: 'No bio available',
+            joinedDate: 'Unknown',
+            avatar: currentUser.photoURL,
+            uid: currentUser.uid
+          };
+          
+          if (userDoc.exists()) {
+            const firestoreData = userDoc.data();
+            
+            // Handle different date formats (ISO string vs Firestore timestamp)
+            let joinedDate = 'Unknown';
+            if (firestoreData.createdAt) {
+              if (typeof firestoreData.createdAt === 'string') {
+                // ISO string format
+                joinedDate = new Date(firestoreData.createdAt).toLocaleDateString();
+              } else if (firestoreData.createdAt.seconds) {
+                // Firestore timestamp format
+                joinedDate = new Date(firestoreData.createdAt.seconds * 1000).toLocaleDateString();
+              }
+            }
+            
+            userData = {
+              ...userData,
+              course: firestoreData.course || 'No course specified',
+              phone: firestoreData.phone || 'No phone number',
+              bio: firestoreData.bio || 'No bio available',
+              joinedDate: joinedDate,
+            };
+          }
+          
+          setUser(userData);
+        } catch (error) {
+          console.error('Error loading user data:', error);
+          // Fallback to basic data
+          setUser({
+            name: currentUser.displayName || 'User',
+            email: currentUser.email || 'No email',
+            course: 'No course specified',
+            phone: 'No phone number',
+            bio: 'No bio available',
+            joinedDate: 'Unknown',
+            avatar: currentUser.photoURL,
+            uid: currentUser.uid
+          });
+        }
       } else {
         setUser(null);
       }
@@ -107,6 +195,13 @@ export default function MyProfileScreen() {
           <Text style={styles.name}>{user.name}</Text>
           <Text style={styles.email}>{user.email}</Text>
           <Text style={styles.course}>{user.course}</Text>
+          <Text style={styles.joined}>Joined: {user.joinedDate}</Text>
+          {user.phone !== 'No phone number' && (
+            <Text style={styles.phone}>{user.phone}</Text>
+          )}
+          {user.bio !== 'No bio available' && (
+            <Text style={styles.bio} numberOfLines={3}>{user.bio}</Text>
+          )}
         </View>
       </View>
 
@@ -170,6 +265,9 @@ const styles = StyleSheet.create({
   name: { fontSize: 18, fontWeight: '700', color: '#333' },
   email: { fontSize: 14, color: '#666', marginTop: 4 },
   course: { fontSize: 14, color: '#666', marginTop: 2 },
+  joined: { fontSize: 14, color: '#666', marginTop: 2 },
+  phone: { fontSize: 14, color: '#666', marginTop: 2 },
+  bio: { fontSize: 13, color: '#888', marginTop: 6, fontStyle: 'italic', lineHeight: 18 },
   actions: { paddingHorizontal: 16, marginTop: 12 },
   actionButton: {
     backgroundColor: '#fff',
