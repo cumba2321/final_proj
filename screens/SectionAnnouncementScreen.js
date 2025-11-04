@@ -83,6 +83,9 @@ export default function SectionAnnouncementScreen() {
     return filteredAnnouncements;
   }, [rawAnnouncements, userClasses]);
 
+  // Add loading state
+  const [isLoading, setIsLoading] = useState(true);
+
   // Fetch user authentication and role
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -132,9 +135,13 @@ export default function SectionAnnouncementScreen() {
         console.error('❌ Error processing real-time update:', error);
         setIsAutoRefreshing(false);
       }
+
+      // Add loading to false after first load
+      setIsLoading(false);
     }, (error) => {
       console.error('❌ Real-time listener error:', error);
       setIsAutoRefreshing(false);
+      setIsLoading(false);
     });
     
     // Cleanup listener when component unmounts
@@ -706,6 +713,16 @@ export default function SectionAnnouncementScreen() {
     }
   };
 
+  // Helper to validate URLs
+  const isValidUrl = (url) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -746,7 +763,11 @@ export default function SectionAnnouncementScreen() {
           />
         }
       >
-        {announcements.length === 0 ? (
+        {isLoading ? (
+          <View style={{ alignItems: 'center', padding: 40 }}>
+            <Text style={{ fontSize: 24, color: '#E75C1A' }}>Loading...</Text>
+          </View>
+        ) : announcements.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateIcon}>📢</Text>
             <Text style={styles.emptyStateTitle}>No announcements yet</Text>
@@ -820,18 +841,22 @@ export default function SectionAnnouncementScreen() {
                 <Image source={{ uri: announcement.image }} style={styles.postImage} />
               )}
 
-              {/* Display Files */}
+              {/* Display Files - make clickable */}
               {announcement.files && announcement.files.length > 0 && (
                 <View style={styles.postFiles}>
                   <Text style={styles.postFilesLabel}>Attachments:</Text>
                   {announcement.files.slice(0, 2).map((file, index) => (
-                    <View key={index} style={styles.postFileItem}>
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.postFileItem}
+                      onPress={() => Linking.openURL(file.uri)}
+                    >
                       <Text style={styles.postFileIcon}>📎</Text>
                       <View style={styles.postFileInfo}>
                         <Text style={styles.postFileName} numberOfLines={1}>{file.name}</Text>
                         <Text style={styles.postFileSize}>{formatFileSize(file.size)}</Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                   {announcement.files.length > 2 && (
                     <Text style={styles.moreFilesText}>+{announcement.files.length - 2} more files</Text>
@@ -839,19 +864,30 @@ export default function SectionAnnouncementScreen() {
                 </View>
               )}
 
-              {/* Display Links */}
+              {/* Display Links - add Copy Link option */}
               {announcement.links && announcement.links.length > 0 && (
                 <View style={styles.postLinks}>
                   <Text style={styles.postLinksLabel}>Links:</Text>
                   {announcement.links.map((link, index) => (
-                    <TouchableOpacity 
-                      key={index} 
-                      style={styles.postLinkItem}
-                      onPress={() => Linking.openURL(link)}
-                    >
-                      <Text style={styles.postLinkIcon}>🔗</Text>
-                      <Text style={styles.postLinkText} numberOfLines={1}>{link}</Text>
-                    </TouchableOpacity>
+                    <View key={index} style={styles.postLinkItem}>
+                      <TouchableOpacity
+                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                        onPress={() => isValidUrl(link) && Linking.openURL(link)}
+                      >
+                        <Text style={styles.postLinkIcon}>🔗</Text>
+                        <Text style={styles.postLinkText} numberOfLines={1}>{link}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{ marginLeft: 8 }}
+                        onPress={() => {
+                          if (isValidUrl(link)) {
+                            Alert.alert('Link copied', link);
+                          }
+                        }}
+                      >
+                        <Text style={{ fontSize: 14, color: '#4A90E2' }}>Copy</Text>
+                      </TouchableOpacity>
+                    </View>
                   ))}
                 </View>
               )}
