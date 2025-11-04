@@ -40,6 +40,11 @@ export default function StudentAttendanceScreen() {
     return `${yyyy}-${mm}-${dd}`;
   };
 
+  const formatDisplayDate = (dateStr) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
   const presentDates = useMemo(() => Object.keys(attendance).filter(k => attendance[k] === 'present'), [attendance]);
   const absentDates = useMemo(() => Object.keys(attendance).filter(k => attendance[k] === 'absent'), [attendance]);
 
@@ -59,17 +64,21 @@ export default function StudentAttendanceScreen() {
   const renderDay = (day) => {
     const key = formatDateKey(day);
     const status = attendance[key];
+    const isToday = key === formatDateKey(new Date());
     if (!status) {
-      // The requirement: students only see the days they are present or absent.
-      // We will render an empty (muted) cell for unmarked days.
       return (
-        <View style={styles.dayCellEmpty} key={key}><Text style={styles.dayMuted}>{day.getDate()}</Text></View>
+        <View style={styles.dayCellEmpty} key={key}>
+          <Text style={[styles.dayMuted, isToday && { fontWeight: 'bold', color: '#E75C1A' }]}>{day.getDate()}</Text>
+        </View>
       );
     }
-
     const isPresent = status === 'present';
     return (
-      <TouchableOpacity key={key} style={[styles.dayCell, isPresent ? styles.present : styles.absent]}>
+      <TouchableOpacity key={key} style={[
+        styles.dayCell,
+        isPresent ? styles.present : styles.absent,
+        isToday && { borderWidth: 2, borderColor: '#E75C1A' }
+      ]}>
         <Text style={styles.dayText}>{day.getDate()}</Text>
       </TouchableOpacity>
     );
@@ -116,20 +125,23 @@ export default function StudentAttendanceScreen() {
             <ScrollView>
               {presentDates.length === 0 && <Text style={styles.emptyText}>No present records</Text>}
               {presentDates.map(dk => (
-                <Text key={dk} style={styles.listItem}>{dk}</Text>
+                <Text key={dk} style={styles.listItem}>{formatDisplayDate(dk)}</Text>
               ))}
             </ScrollView>
           </View>
-
           <View style={styles.listCard}>
             <Text style={styles.listTitle}>Absent</Text>
             <ScrollView>
               {absentDates.length === 0 && <Text style={styles.emptyText}>No absent records</Text>}
               {absentDates.map(dk => (
-                <Text key={dk} style={[styles.listItem, styles.absentText]}>{dk}</Text>
+                <Text key={dk} style={[styles.listItem, styles.absentText]}>{formatDisplayDate(dk)}</Text>
               ))}
             </ScrollView>
           </View>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 }}>
+          <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>Present: {presentDates.length}</Text>
+          <Text style={{ color: '#E53935', fontWeight: 'bold' }}>Absent: {absentDates.length}</Text>
         </View>
             </View>
         )}

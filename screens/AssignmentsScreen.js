@@ -1068,7 +1068,11 @@ export default function AssignmentsScreen() {
       </View>
 
       <ScrollView style={styles.content}>
-        {assignments.length === 0 ? (
+        {isLoading ? (
+          <View style={{ alignItems: 'center', padding: 40 }}>
+            <Text style={{ fontSize: 24, color: '#E75C1A' }}>Loading...</Text>
+          </View>
+        ) : assignments.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateIcon}>📝</Text>
             <Text style={styles.emptyStateTitle}>No assignments yet</Text>
@@ -1224,14 +1228,18 @@ export default function AssignmentsScreen() {
                   
                   {/* Links */}
                   {assignment.links?.map((link, index) => (
-                    <View key={`link-${index}`} style={styles.attachmentItem}>
+                    <TouchableOpacity
+                      key={`link-${index}`}
+                      style={styles.attachmentItem}
+                      onPress={() => Linking.openURL(link.url)}
+                    >
                       <Text style={styles.attachmentIcon}>🔗</Text>
                       <View style={styles.attachmentInfo}>
                         <Text style={styles.attachmentName} numberOfLines={1}>{link.title}</Text>
                         <Text style={styles.linkUrl} numberOfLines={1}>{link.url}</Text>
                       </View>
                       <Text style={styles.externalIcon}>↗️</Text>
-                    </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               )}
@@ -1266,7 +1274,6 @@ export default function AssignmentsScreen() {
                         <TouchableOpacity 
                           style={styles.extendButton}
                           onPress={() => {
-                            console.log('Extend button pressed for:', assignment.title);
                             openExtendDeadlineModal(assignment);
                           }}
                         >
@@ -1332,7 +1339,11 @@ export default function AssignmentsScreen() {
                     
                     {/* Links */}
                     {assignment.links?.map((link, index) => (
-                      <TouchableOpacity key={`link-${index}`} style={styles.attachmentItem}>
+                      <TouchableOpacity
+                        key={`link-${index}`}
+                        style={styles.attachmentItem}
+                        onPress={() => Linking.openURL(link.url)}
+                      >
                         <Text style={styles.attachmentIcon}>🔗</Text>
                         <View style={styles.attachmentInfo}>
                           <Text style={styles.attachmentName} numberOfLines={1}>{link.title}</Text>
@@ -2848,7 +2859,7 @@ const styles = StyleSheet.create({
   },
   overdueText: {
     color: '#f44336',
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   modalCloseButton: {
     fontSize: 18,
@@ -3595,13 +3606,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#4A90E2',
     paddingVertical: 12,
     borderRadius: 8,
-    marginLeft: 8,
     alignItems: 'center',
   },
   confirmButtonText: {
     color: '#fff',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   // Extend Deadline Modal Styles
   extendDeadlineModalContainer: {
