@@ -13,6 +13,8 @@ import HomeScreen from './screens/HomeScreen';
 import PeopleScreen from './screens/PeopleScreen';
 import InstructorFeedbackScreen from './screens/InstructorFeedbackScreen';
 import SectionAnnouncementScreen from './screens/SectionAnnouncementScreen';
+import InstructorAttendanceScreen from './screens/InstructorAttendanceScreen';
+import StudentAttendanceScreen from './screens/StudentAttendanceScreen';
 import ClassWallScreen from './screens/ClassWallScreen';
 import ClassDetailsScreen from './screens/ClassDetailsScreen';
 import AssignmentsScreen from './screens/AssignmentsScreen';
@@ -127,6 +129,8 @@ export default function App() {
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="ManageStudents" component={ManageStudentsScreen} />
+            <Stack.Screen name="InstructorAttendance" component={InstructorAttendanceScreen} />
+            <Stack.Screen name="StudentAttendance" component={StudentAttendanceScreen} />
           </>
         ) : (
           <>

@@ -1773,7 +1773,12 @@ export default function HomeScreen() {
                         navigation.navigate('SectionAnnouncement');
                         break;
                       case 'Attendance':
-                        // Add navigation when attendance screen is created
+                        // Navigate to the appropriate attendance screen by role
+                        if (userRole === 'instructor') {
+                          navigation.navigate('InstructorAttendance');
+                        } else {
+                          navigation.navigate('StudentAttendance');
+                        }
                         break;
                       case 'My Events':
                         // Add navigation when events screen is created
@@ -1896,6 +1901,7 @@ export default function HomeScreen() {
                     <Text style={styles.backButton}>← Back</Text>
                   </TouchableOpacity>
                   <Text style={styles.sectionSelectionTitle}>Select Classes</Text>
+            
                   <TouchableOpacity 
                     onPress={() => {
                       if (selectedSections.length > 0) {

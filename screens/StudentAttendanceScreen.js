@@ -11,47 +11,27 @@ export default function StudentAttendanceScreen() {
   const [attendance, setAttendance] = useState({});
   const [loading, setLoading] = useState(true);
 
-  // Fetch student's attendance records
+  // Sample attendance data for demonstration
   useEffect(() => {
-    const fetchAttendance = async () => {
-      if (!auth.currentUser || !db) return;
-
-      try {
-        // Get all attendance records where this student appears
-        const attendanceQuery = query(
-          collection(db, 'attendance'),
-          where(`attendance.${auth.currentUser.uid}`, 'in', ['present', 'absent'])
-        );
-        
-        const snapshot = await getDocs(attendanceQuery);
-        
-        // Transform into date -> status map
-        const records = {};
-        snapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.date && data.attendance && data.attendance[auth.currentUser.uid]) {
-            records[data.date] = data.attendance[auth.currentUser.uid];
-          }
-        });
-
-        setAttendance(records);
-      } catch (error) {
-        console.error('Error fetching attendance:', error);
-        Alert.alert('Error', 'Failed to load attendance records');
-      } finally {
-        setLoading(false);
-      }
+    // Create some sample attendance records
+    const sampleAttendance = {
+      '2025-11-01': 'present',
+      '2025-11-02': 'present',
+      '2025-11-03': 'absent',
+      '2025-11-04': 'present',
     };
-
-    fetchAttendance();
+    
+    setAttendance(sampleAttendance);
+    setLoading(false);
   }, []);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
 
+  // Keep attendance up to date with selected month
   useEffect(() => {
-    // Placeholder: if you have Firestore data, fetch student's attendance here
-    // Example: query attendance docs for this student and transform into date->status map
-  }, []);
+    const monthKey = selectedMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    console.log('Selected month:', monthKey);
+  }, [selectedMonth]);
 
   const formatDateKey = (d) => {
     const yyyy = d.getFullYear();

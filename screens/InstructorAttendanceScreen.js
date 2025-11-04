@@ -11,11 +11,11 @@ export default function InstructorAttendanceScreen() {
     id: 'sample-section-1',
     name: 'Section 1',
     students: [
-      { id: '1', name: 'Arissa, James' },
-      { id: '2', name: 'Nazif' },
-      { id: '3', name: 'Yosi' },
-      { id: '4', name: 'Lee, Michael' },
-      { id: '5', name: 'Sarah Chen' }
+      { id: '1', name: 'Smith, John' },
+      { id: '2', name: 'Garcia, Maria' },
+      { id: '3', name: 'Johnson, David' },
+      { id: '4', name: 'Chen, Lisa' },
+      { id: '5', name: 'Kim, Michelle' }
     ]
   };
 
