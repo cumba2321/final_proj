@@ -82,7 +82,7 @@ export default function HomeScreen() {
     return classWallPosts.filter(post => {
       // Filter posts based on audience setting
       if (!post.audience || post.audience === 'World') {
-        return true; // Show all world posts
+        return true; // Show all world posts (including campus announcements)
       }
       
       if (post.audience === 'Only Me') {
@@ -96,12 +96,22 @@ export default function HomeScreen() {
           return true;
         }
         
-        // For Class posts, check if user is enrolled in any of the selected classes
+        // For Class posts and announcements, check if user is enrolled in any of the selected classes
         if (!post.selectedSections || post.selectedSections.length === 0) {
           return true; // If no specific sections selected, show to all authenticated users
         }
         
         // Check if current user has access to any of the selected classes
+        // For announcements, match by class ID and section
+        if (post.isAnnouncement && post.selectedSections.length > 0) {
+          return userEnrolledSections.some(userClass => 
+            post.selectedSections.some(postSection => 
+              userClass.id === postSection.id && userClass.section === postSection.section
+            )
+          );
+        }
+        
+        // For regular class posts, use existing logic
         return userEnrolledSections.some(userClass => 
           post.selectedSections.includes(userClass)
         );
@@ -1191,6 +1201,13 @@ export default function HomeScreen() {
                 </View>
               )}
               <View style={styles.postInfo}>
+                {post.isAnnouncement && (
+                  <View style={styles.announcementRow}>
+                    <View style={styles.announcementBadge}>
+                      <Text style={styles.announcementBadgeText}>📢 Announcement</Text>
+                    </View>
+                  </View>
+                )}
                 <View style={styles.authorRow}>
                   <Text style={styles.authorName}>{post.author}</Text>
                   <Text style={[
@@ -1260,44 +1277,47 @@ export default function HomeScreen() {
               </View>
             )}
 
-            <View style={styles.postActions}>
-              <TouchableOpacity 
-                style={styles.actionButton} 
-                onPress={() => handleLikePost(post)}
-              >
+            {/* Only show actions for non-announcement posts */}
+            {!post.isAnnouncement && (
+              <View style={styles.postActions}>
+                <TouchableOpacity 
+                  style={styles.actionButton} 
+                  onPress={() => handleLikePost(post)}
+                >
+                   <Image
+                    source={
+                      isPostLiked(post)
+                        ? require('../assets/HTA.png') // active like
+                       : require('../assets/HTI.png')  // normal like
+                   }  
+                  style={styles.actionIconImage}
+                />
+                <Text style={styles.actionCount}>{post.likes || 0}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.actionButton}
+                  onPress={() => openCommentModal(post)}
+                >
+                  <Image
+                    source={require('../assets/COI.png')}
+                    style={styles.actionIconImage}
+
+                  />
+                  <Text style={styles.actionCount}>{post.comments || 0}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.actionButton}
+                  onPress={() => handleShare(post)}
+                >
                  <Image
-                  source={
-                    isPostLiked(post)
-                      ? require('../assets/HTA.png') // active like
-                     : require('../assets/HTI.png')  // normal like
-                 }  
-                style={styles.actionIconImage}
-              />
-              <Text style={styles.actionCount}>{post.likes || 0}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={() => openCommentModal(post)}
-              >
-                <Image
-                  source={require('../assets/COI.png')}
-                  style={styles.actionIconImage}
+                    source={require('../assets/S.png')}
+                    style={styles.actionIconImage}
 
-                />
-                <Text style={styles.actionCount}>{post.comments || 0}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={() => handleShare(post)}
-              >
-               <Image
-                  source={require('../assets/S.png')}
-                  style={styles.actionIconImage}
-
-                />
-                <Text style={styles.actionText}>Share</Text>
-              </TouchableOpacity>
-            </View>
+                  />
+                  <Text style={styles.actionText}>Share</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         ))}
         
@@ -2112,6 +2132,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     fontWeight: 'bold',
     textTransform: 'uppercase',
+  },
+  announcementBadge: {
+    backgroundColor: '#FFF8DC',
+    borderColor: '#FFD700',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  announcementBadgeText: {
+    fontSize: 10,
+    color: '#B8860B',
+    fontWeight: 'bold',
+  },
+  announcementRow: {
+    alignItems: 'center',
+    marginBottom: 8,
   },
   instructorIcon: {
     backgroundColor: '#E75C1A',
