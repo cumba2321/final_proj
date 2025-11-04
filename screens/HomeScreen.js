@@ -24,6 +24,93 @@ export default function HomeScreen() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   
+  // Audience selection functionality
+  const [selectedAudience, setSelectedAudience] = useState('World'); // Default to World
+  const [showAudienceModal, setShowAudienceModal] = useState(false);
+  const [showSectionSelection, setShowSectionSelection] = useState(false);
+  const [selectedSections, setSelectedSections] = useState([]);
+  const [userEnrolledSections, setUserEnrolledSections] = useState([]); // User's enrolled sections from Firebase
+
+  // Helper function to display audience text
+  const getAudienceDisplayText = () => {
+    if ((selectedAudience === 'Classmates' || selectedAudience === 'Class') && selectedSections.length > 0) {
+      return `${selectedSections.length} Class${selectedSections.length > 1 ? 'es' : ''}`;
+    }
+    return selectedAudience;
+  };
+  
+  // Fetch user's enrolled sections from Firebase classes
+  const fetchUserEnrolledSections = async () => {
+    if (!currentUser || !db) return;
+    
+    try {
+      const classesCollection = collection(db, 'classes');
+      let q;
+      
+      if (userRole === 'instructor') {
+        // For instructors, get classes they created
+        q = query(classesCollection, where('createdBy', '==', currentUser.uid));
+      } else {
+        // For students, get classes where they are enrolled
+        q = query(classesCollection, where('students', 'array-contains', currentUser.uid));
+      }
+      
+      const classesSnapshot = await getDocs(q);
+      
+      if (!classesSnapshot.empty) {
+        // Extract class names and sections from classes
+        const enrolledSections = classesSnapshot.docs.map(doc => {
+          const data = doc.data();
+          // Format as "Subject - Section" (e.g., "Programming - Section 1")
+          return `${data.subject} - ${data.section}`;
+        });
+        
+        setUserEnrolledSections(enrolledSections);
+        console.log(`${userRole} sections:`, enrolledSections);
+      } else {
+        setUserEnrolledSections([]);
+        console.log(`No classes found for ${userRole}`);
+      }
+    } catch (error) {
+      console.error('Error fetching user enrolled sections:', error);
+      setUserEnrolledSections([]);
+    }
+  };
+  
+  // Get filtered posts for display based on user's access and audience settings
+  const getFilteredPosts = () => {
+    return classWallPosts.filter(post => {
+      // Filter posts based on audience setting
+      if (!post.audience || post.audience === 'World') {
+        return true; // Show all world posts
+      }
+      
+      if (post.audience === 'Only Me') {
+        // Only show "Only Me" posts to the author
+        return post.authorId === currentUser?.uid;
+      }
+      
+      if (post.audience === 'Classmates' || post.audience === 'Class') {
+        // Always show posts authored by current user
+        if (post.authorId === currentUser?.uid) {
+          return true;
+        }
+        
+        // For Class posts, check if user is enrolled in any of the selected classes
+        if (!post.selectedSections || post.selectedSections.length === 0) {
+          return true; // If no specific sections selected, show to all authenticated users
+        }
+        
+        // Check if current user has access to any of the selected classes
+        return userEnrolledSections.some(userClass => 
+          post.selectedSections.includes(userClass)
+        );
+      }
+      
+      return true; // Default to showing the post
+    });
+  };
+  
   // Comment functionality
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedPostForComment, setSelectedPostForComment] = useState(null);
@@ -103,6 +190,10 @@ export default function HomeScreen() {
     // Initialize with existing media if any
     setEditSelectedImages(selectedPost.image ? [{ uri: selectedPost.image, name: 'image.jpg', size: 0 }] : []);
     setEditSelectedFiles(selectedPost.files || []);
+    // Set the current audience from the post
+    setSelectedAudience(selectedPost.audience || 'World');
+    // Set the selected sections if it's a classmates post
+    setSelectedSections(selectedPost.selectedSections || []);
     setShowEditPostModal(true);
     closePostMenu();
   };
@@ -131,6 +222,8 @@ export default function HomeScreen() {
           type: file.type,
           uri: file.uri
         })),
+        audience: selectedAudience,
+        selectedSections: (selectedAudience === 'Classmates' || selectedAudience === 'Class') ? selectedSections : [], // Add selected sections for classmates/class
         updatedAt: serverTimestamp()
       };
 
@@ -148,6 +241,8 @@ export default function HomeScreen() {
                 message: editPostText, 
                 image: updatedData.image,
                 files: updatedData.files,
+                audience: selectedAudience,
+                selectedSections: (selectedAudience === 'Classmates' || selectedAudience === 'Class') ? selectedSections : [],
                 updatedAt: new Date() 
               }
             : post
@@ -603,6 +698,7 @@ export default function HomeScreen() {
     setNewPostText('');
     setSelectedImages([]);
     setSelectedFiles([]);
+    setSelectedAudience('World'); // Reset to default
   };
 
   const handleImagePicker = async () => {
@@ -728,6 +824,8 @@ export default function HomeScreen() {
         authorAvatar: userAvatar,
         role: userRole === 'instructor' ? 'Instructor' : 'Student',
         message: newPostText,
+        audience: selectedAudience, // Add audience field
+        selectedSections: (selectedAudience === 'Classmates' || selectedAudience === 'Class') ? selectedSections : [], // Add selected sections for classmates/class
         likes: 0,
         comments: 0,
         image: selectedImages.length > 0 ? selectedImages[0].uri : null,
@@ -900,8 +998,10 @@ export default function HomeScreen() {
       setCurrentUser(user);
       if (user) {
         fetchUserRole(user);
+        fetchUserEnrolledSections(); // Fetch user's enrolled sections
       } else {
         setUserRole(null);
+        setUserEnrolledSections([]); // Clear enrolled sections when user logs out
       }
     });
     
@@ -989,6 +1089,13 @@ export default function HomeScreen() {
     };
   }, []);
 
+  // Fetch user's enrolled sections when currentUser or userRole changes
+  useEffect(() => {
+    if (currentUser && userRole) {
+      fetchUserEnrolledSections();
+    }
+  }, [currentUser, userRole]);
+
   // Refresh user data when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
@@ -1068,7 +1175,7 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
         
-        {classWallPosts.map((post, index) => (
+        {getFilteredPosts().map((post, index) => (
           <View key={post.id || `post-${index}-${Date.now()}`} style={styles.postCard}>
             <View style={styles.postHeader}>
               {post.authorAvatar ? (
@@ -1093,7 +1200,19 @@ export default function HomeScreen() {
                     {post.role}
                   </Text>
                 </View>
-                <Text style={styles.timestamp}>{post.timestamp}</Text>
+                <View style={styles.timestampRow}>
+                  <Text style={styles.timestamp}>{post.timestamp}</Text>
+                  {post.audience && (
+                    <View style={styles.audienceIndicator}>
+                      <Text style={styles.audienceIcon}>
+                        {post.audience === 'World' ? '🌍' : 
+                         (post.audience === 'Classmates' || post.audience === 'Class') ? '👥' : 
+                         post.audience === 'Only Me' ? '🔒' : '🌍'}
+                      </Text>
+                      <Text style={styles.audienceText}>{post.audience}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
               {/* Only show menu button for posts owned by current user */}
               {currentUser?.uid && post.authorId && currentUser.uid === post.authorId && (
@@ -1182,7 +1301,7 @@ export default function HomeScreen() {
           </View>
         ))}
         
-        {classWallPosts.length === 0 && (
+        {getFilteredPosts().length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateText}>No posts yet. Be the first to share something!</Text>
             <TouchableOpacity 
@@ -1220,7 +1339,7 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                 )}
-                <View>
+                <View style={styles.profileTextContainer}>
                   <Text style={styles.authorName}>
                     {currentUser?.displayName || currentUser?.email || 'You'}
                   </Text>
@@ -1231,6 +1350,13 @@ export default function HomeScreen() {
                     {userRole === 'instructor' ? 'Instructor' : 'Student'}
                   </Text>
                 </View>
+                <TouchableOpacity 
+                  style={styles.audienceInProfile}
+                  onPress={() => setShowAudienceModal(true)}
+                >
+                  <Text style={styles.audienceProfileText}>{getAudienceDisplayText()}</Text>
+                  <Text style={styles.audienceProfileArrow}>▼</Text>
+                </TouchableOpacity>
               </View>
 
               <TextInput
@@ -1481,7 +1607,7 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                 )}
-                <View>
+                <View style={styles.profileTextContainer}>
                   <Text style={styles.authorName}>
                     {currentUser?.displayName || currentUser?.email || 'You'}
                   </Text>
@@ -1492,6 +1618,13 @@ export default function HomeScreen() {
                     {userRole === 'instructor' ? 'Instructor' : 'Student'}
                   </Text>
                 </View>
+                <TouchableOpacity 
+                  style={styles.audienceInProfile}
+                  onPress={() => setShowAudienceModal(true)}
+                >
+                  <Text style={styles.audienceProfileText}>{getAudienceDisplayText()}</Text>
+                  <Text style={styles.audienceProfileArrow}>▼</Text>
+                </TouchableOpacity>
               </View>
 
               <TextInput
@@ -1669,6 +1802,139 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Audience Selection Modal */}
+      <Modal visible={showAudienceModal} transparent={true} animationType="slide">
+        <View style={styles.audienceModalOverlay}>
+          <View style={styles.audienceModal}>
+            <View style={styles.audienceModalHeader}>
+              <Text style={styles.audienceModalTitle}>Select Audience</Text>
+              <TouchableOpacity onPress={() => setShowAudienceModal(false)}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.audienceOptions}>
+              <TouchableOpacity 
+                style={[styles.audienceOptionItem, selectedAudience === 'World' && styles.selectedAudienceOption]}
+                onPress={() => {
+                  setSelectedAudience('World');
+                  setShowAudienceModal(false);
+                }}
+              >
+                <Text style={styles.audienceOptionIcon}>🌍</Text>
+                <View style={styles.audienceOptionInfo}>
+                  <Text style={styles.audienceOptionTitle}>World</Text>
+                  <Text style={styles.audienceOptionDescription}>Everyone can see this post</Text>
+                </View>
+                {selectedAudience === 'World' && <Text style={styles.checkmark}>✓</Text>}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.audienceOptionItem, (selectedAudience === 'Classmates' || selectedAudience === 'Class') && styles.selectedAudienceOption]}
+                onPress={() => {
+                  setShowSectionSelection(true);
+                }}
+              >
+                <Text style={styles.audienceOptionIcon}>👥</Text>
+                <View style={styles.audienceOptionInfo}>
+                  <Text style={styles.audienceOptionTitle}>Class</Text>
+                  <Text style={styles.audienceOptionDescription}>
+                    {userRole === 'instructor' 
+                      ? 'Share with students in your classes' 
+                      : 'Share with classmates in your classes'
+                    }
+                  </Text>
+                </View>
+                {(selectedAudience === 'Classmates' || selectedAudience === 'Class') && <Text style={styles.checkmark}>✓</Text>}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.audienceOptionItem, selectedAudience === 'Only Me' && styles.selectedAudienceOption]}
+                onPress={() => {
+                  setSelectedAudience('Only Me');
+                  setShowAudienceModal(false);
+                }}
+              >
+                <Text style={styles.audienceOptionIcon}>🔒</Text>
+                <View style={styles.audienceOptionInfo}>
+                  <Text style={styles.audienceOptionTitle}>Only Me</Text>
+                  <Text style={styles.audienceOptionDescription}>Only you can see this post</Text>
+                </View>
+                {selectedAudience === 'Only Me' && <Text style={styles.checkmark}>✓</Text>}
+              </TouchableOpacity>
+            </View>
+            
+            {/* Section Selection for Classmates */}
+            {showSectionSelection && (
+              <View style={styles.sectionSelectionContainer}>
+                <View style={styles.sectionSelectionHeader}>
+                  <TouchableOpacity onPress={() => setShowSectionSelection(false)}>
+                    <Text style={styles.backButton}>← Back</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.sectionSelectionTitle}>Select Classes</Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      if (selectedSections.length > 0) {
+                        setSelectedAudience('Class');
+                        setShowAudienceModal(false);
+                        setShowSectionSelection(false);
+                      }
+                    }}
+                    disabled={selectedSections.length === 0 || userEnrolledSections.length === 0}
+                  >
+                    <Text style={[
+                      styles.doneButton, 
+                      (selectedSections.length === 0 || userEnrolledSections.length === 0) && styles.doneButtonDisabled
+                    ]}>
+                      Done
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <ScrollView style={styles.sectionsList}>
+                  {userEnrolledSections.length > 0 ? (
+                    userEnrolledSections.map((section) => (
+                      <TouchableOpacity
+                        key={section}
+                        style={[
+                          styles.sectionItem,
+                          selectedSections.includes(section) && styles.selectedSectionItem
+                        ]}
+                        onPress={() => {
+                          setSelectedSections(prev => 
+                            prev.includes(section)
+                              ? prev.filter(s => s !== section)
+                              : [...prev, section]
+                          );
+                        }}
+                      >
+                        <Text style={styles.sectionName}>{section}</Text>
+                        {selectedSections.includes(section) && <Text style={styles.checkmark}>✓</Text>}
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <View style={styles.noSectionsContainer}>
+                      <Text style={styles.noSectionsText}>
+                        {userRole === 'instructor' 
+                          ? 'You have not created any classes yet.' 
+                          : 'You are not enrolled in any classes yet.'
+                        }
+                      </Text>
+                      <Text style={styles.noSectionsSubtext}>
+                        {userRole === 'instructor'
+                          ? 'Create a class in PATHclass to share posts with your students.'
+                          : 'Please join a class in PATHclass to share posts with your classmates.'
+                        }
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -1996,6 +2262,29 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 2,
   },
+  timestampRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  audienceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  audienceIcon: {
+    fontSize: 10,
+    marginRight: 4,
+  },
+  audienceText: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '500',
+  },
   postMenuButton: {
     padding: 8,
     marginLeft: 8,
@@ -2218,6 +2507,7 @@ const styles = StyleSheet.create({
   newPostAuthor: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   newPostTextInput: {
@@ -2473,5 +2763,185 @@ const styles = StyleSheet.create({
   },
   submitCommentButtonTextActive: {
     color: '#fff',
+  },
+  // Audience Modal Styles
+  audienceModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audienceModal: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    width: '85%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  audienceModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  audienceModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  audienceOptions: {
+    gap: 12,
+  },
+  audienceOptionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  selectedAudienceOption: {
+    borderColor: '#E75C1A',
+    backgroundColor: '#fff5f0',
+  },
+  audienceOptionIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  audienceOptionInfo: {
+    flex: 1,
+  },
+  audienceOptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  audienceOptionDescription: {
+    fontSize: 12,
+    color: '#666',
+  },
+  checkmark: {
+    fontSize: 18,
+    color: '#E75C1A',
+    fontWeight: 'bold',
+  },
+  // Section Selection Styles
+  sectionSelectionContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    borderRadius: 15,
+  },
+  sectionSelectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  backButton: {
+    fontSize: 16,
+    color: '#E75C1A',
+    fontWeight: '600',
+  },
+  sectionSelectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  doneButton: {
+    fontSize: 16,
+    color: '#E75C1A',
+    fontWeight: '600',
+  },
+  doneButtonDisabled: {
+    color: '#ccc',
+  },
+  sectionsList: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  sectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginVertical: 4,
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  selectedSectionItem: {
+    borderColor: '#E75C1A',
+    backgroundColor: '#fff5f0',
+  },
+  sectionName: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  noSectionsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noSectionsText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  noSectionsSubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  audienceInProfile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  audienceProfileText: {
+    fontSize: 12,
+    color: '#666',
+    marginRight: 4,
+  },
+  audienceProfileArrow: {
+    fontSize: 10,
+    color: '#666',
+  },
+  roleAndAudienceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  profileTextContainer: {
+    flex: 1,
+    marginLeft: 12,
   },
 });
