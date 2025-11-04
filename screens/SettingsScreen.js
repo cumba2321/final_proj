@@ -22,7 +22,27 @@ export default function SettingsScreen() {
   }, []);
 
   const handleSignOut = () => {
-    signOut(auth).catch(error => alert(error.message));
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: () => {
+            signOut(auth)
+              .then(() => {
+                console.log('User signed out');
+              })
+              .catch(error => {
+                Alert.alert('Error', error.message);
+              });
+          },
+        },
+      ],
+      { cancelable: true }
+    );
   };
 
   // Cascade deletion functions
