@@ -1781,8 +1781,9 @@ export default function HomeScreen() {
                         }
                         break;
                       case 'My Events':
-                        // Add navigation when events screen is created
-                        break;
+                        navigation.navigate('MyEvents');
+                          break;
+
                       default:
                         // Dashboard or other items stay on home
                         break;

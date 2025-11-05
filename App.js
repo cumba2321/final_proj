@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 
+import MyEventsScreen from './screens/MyEventsScreen';
 import WelcomeScreen from './screens/WelcomeScreen';
 import LoginScreen from './screens/LoginScreen';
 import SignUpScreen from './screens/SignUpScreen';
@@ -131,6 +132,7 @@ export default function App() {
             <Stack.Screen name="ManageStudents" component={ManageStudentsScreen} />
             <Stack.Screen name="InstructorAttendance" component={InstructorAttendanceScreen} />
             <Stack.Screen name="StudentAttendance" component={StudentAttendanceScreen} />
+            <Stack.Screen name="MyEvents" component={MyEventsScreen} />
           </>
         ) : (
           <>
