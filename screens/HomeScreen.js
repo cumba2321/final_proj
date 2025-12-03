@@ -1163,7 +1163,7 @@ export default function HomeScreen() {
         }
       >
         
-        {/* “What’s your PATHFit update today?” */}
+        {/* What’s your PathFit update today? */}
         <TouchableOpacity 
           style={styles.whatsOnYourMindContainer}
           onPress={openNewPostModal}
