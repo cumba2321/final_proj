@@ -1381,7 +1381,7 @@ export default function HomeScreen() {
 
               <TextInput
                 style={styles.newPostTextInput}
-                placeholder="“What’s your PATHFit update today?”"
+                placeholder="What’s your PathFit update today?"
                 placeholderTextColor="#888"
                 multiline={true}
                 value={newPostText}
