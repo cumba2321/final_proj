@@ -1181,7 +1181,7 @@ export default function HomeScreen() {
                 </Text>
               </View>
             )}
-            <Text style={styles.whatsOnYourMindText}>“What’s your PATHFit update today?”</Text>
+            <Text style={styles.whatsOnYourMindText}>What’s your PathFit update today?</Text>
           </View>
         </TouchableOpacity>
         
