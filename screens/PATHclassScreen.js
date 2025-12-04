@@ -401,7 +401,7 @@ export default function PATHclassScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>PATHclass</Text>
+        <Text style={styles.title}>PathFit Class</Text>
         <View style={styles.headerRight}>
           {userRole && (
             <View style={[

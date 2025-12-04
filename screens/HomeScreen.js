@@ -1128,7 +1128,7 @@ export default function HomeScreen() {
 
   const menuItems = [
     'Dashboard',
-    'PATHclass',
+    'PathFit Class',
     'Announcement',
     'My Events',
     'Attendance'
