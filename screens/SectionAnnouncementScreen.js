@@ -380,7 +380,7 @@ export default function SectionAnnouncementScreen() {
           authorAvatar: currentUser?.photoURL || null,
           role: 'Instructor',
           message: `${newAnnouncement.title.trim()}\n\n${newAnnouncement.message.trim()}`,
-          audience: selectedTarget === 'campus' ? 'World' : 'Class',
+          audience: selectedTarget === 'campus' ? 'Public' : 'Class',
           selectedSections: selectedTarget === 'section' ? [{ 
             id: selectedClass.id, 
             name: selectedClass.name, 
@@ -728,18 +728,18 @@ export default function SectionAnnouncementScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backIcon}>‹</Text>
+          <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.title}>Announcements</Text>
-          <Text style={styles.subtitle}>
+          {/* <Text style={styles.subtitle}>
             Campus & Section Updates • Real-time ({refreshCount})
             {lastRefreshTime && ` • Updated ${lastRefreshTime.toLocaleTimeString('en-US', { 
               hour: '2-digit', 
               minute: '2-digit' 
             })}`}
             {isAutoRefreshing && ' �'}
-          </Text>
+          </Text> */}
         </View>
         {userRole === 'instructor' && (
           <TouchableOpacity 
@@ -898,7 +898,7 @@ export default function SectionAnnouncementScreen() {
                   <Text style={styles.actionCount}>{announcement.likes || 0}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.actionButton}>
-                  <Text style={styles.actionIcon}>�</Text>
+                  <Text style={styles.actionIcon}>💬</Text>
                   <Text style={styles.actionCount}>{announcement.comments || 0}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.actionButton}>
@@ -1293,7 +1293,7 @@ export default function SectionAnnouncementScreen() {
                   </Text>
                 </View>
                 <View style={styles.audienceInProfile}>
-                  <Text style={styles.audienceProfileText}>World</Text>
+                  <Text style={styles.audienceProfileText}>Public</Text>
                   <Text style={styles.audienceProfileArrow}>▼</Text>
                 </View>
               </View>
@@ -1398,28 +1398,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 40,
+    paddingHorizontal: 20,
+    paddingTop: 50,
     paddingBottom: 16,
-    backgroundColor: '#fff',
-    elevation: 2,
+    backgroundColor: '#E75C1A',
+    elevation: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   backButton: {
-    padding: 8,
+    padding: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#333',
-    fontWeight: 'bold',
-  },
-  title: {
+  backButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    width: 30,
+    height: 22,
+    textAlign: 'center',
+    color: '#fff',
+    marginTop: -10,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '500',
+    color: '#fff',
+    letterSpacing: 1,
+    marginTop: 6,	
+    marginLeft: -20,
   },
   placeholder: {
     width: 40,

@@ -25,7 +25,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   
   // Audience selection functionality
-  const [selectedAudience, setSelectedAudience] = useState('World'); // Default to World
+  const [selectedAudience, setSelectedAudience] = useState('Public'); // Default to Public
   const [showAudienceModal, setShowAudienceModal] = useState(false);
   const [showSectionSelection, setShowSectionSelection] = useState(false);
   const [selectedSections, setSelectedSections] = useState([]);
@@ -81,8 +81,8 @@ export default function HomeScreen() {
   const getFilteredPosts = () => {
     return classWallPosts.filter(post => {
       // Filter posts based on audience setting
-      if (!post.audience || post.audience === 'World') {
-        return true; // Show all world posts (including campus announcements)
+      if (!post.audience || post.audience === 'Public') {
+        return true; // Show all public posts (including campus announcements)
       }
       
       if (post.audience === 'Only Me') {
@@ -201,7 +201,7 @@ export default function HomeScreen() {
     setEditSelectedImages(selectedPost.image ? [{ uri: selectedPost.image, name: 'image.jpg', size: 0 }] : []);
     setEditSelectedFiles(selectedPost.files || []);
     // Set the current audience from the post
-    setSelectedAudience(selectedPost.audience || 'World');
+    setSelectedAudience(selectedPost.audience || 'Public');
     // Set the selected sections if it's a classmates post
     setSelectedSections(selectedPost.selectedSections || []);
     setShowEditPostModal(true);
@@ -708,7 +708,7 @@ export default function HomeScreen() {
     setNewPostText('');
     setSelectedImages([]);
     setSelectedFiles([]);
-    setSelectedAudience('World'); // Reset to default
+    setSelectedAudience('Public'); // Reset to default
   };
 
   const handleImagePicker = async () => {
@@ -1222,7 +1222,7 @@ export default function HomeScreen() {
                   {post.audience && (
                     <View style={styles.audienceIndicator}>
                       <Text style={styles.audienceIcon}>
-                        {post.audience === 'World' ? '🌍' : 
+                        {post.audience === 'Public' ? '🌍' : 
                          (post.audience === 'Classmates' || post.audience === 'Class') ? '👥' : 
                          post.audience === 'Only Me' ? '🔒' : '🌍'}
                       </Text>
@@ -1301,7 +1301,6 @@ export default function HomeScreen() {
                   <Image
                     source={require('../assets/COI.png')}
                     style={styles.actionIconImage}
-
                   />
                   <Text style={styles.actionCount}>{post.comments || 0}</Text>
                 </TouchableOpacity>
@@ -1845,18 +1844,18 @@ export default function HomeScreen() {
             
             <View style={styles.audienceOptions}>
               <TouchableOpacity 
-                style={[styles.audienceOptionItem, selectedAudience === 'World' && styles.selectedAudienceOption]}
+                style={[styles.audienceOptionItem, selectedAudience === 'Public' && styles.selectedAudienceOption]}
                 onPress={() => {
-                  setSelectedAudience('World');
+                  setSelectedAudience('Public');
                   setShowAudienceModal(false);
                 }}
               >
                 <Text style={styles.audienceOptionIcon}>🌍</Text>
                 <View style={styles.audienceOptionInfo}>
-                  <Text style={styles.audienceOptionTitle}>World</Text>
+                  <Text style={styles.audienceOptionTitle}>Public</Text>
                   <Text style={styles.audienceOptionDescription}>Everyone can see this post</Text>
                 </View>
-                {selectedAudience === 'World' && <Text style={styles.checkmark}>✓</Text>}
+                {selectedAudience === 'Public' && <Text style={styles.checkmark}>✓</Text>}
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -1980,8 +1979,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 40,
-    paddingBottom: 16,
+    paddingTop: 5,
+    paddingBottom: 5,
     backgroundColor: '#fffdfb',
   },
   logo: {

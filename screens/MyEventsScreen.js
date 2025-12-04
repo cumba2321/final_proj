@@ -1,17 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Modal,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, ActivityIndicator, } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { useNavigation } from '@react-navigation/native';
 
 // 🔸 Default available events list
 const defaultEvents = [
@@ -21,6 +13,7 @@ const defaultEvents = [
 ];
 
 export default function MyEventsScreen() {
+  const navigation = useNavigation();
   const [events, setEvents] = useState({ ongoing: [], upcoming: [], past: [] });
   const [availableEvents, setAvailableEvents] = useState(defaultEvents);
   const [modalVisible, setModalVisible] = useState(false);
@@ -207,12 +200,14 @@ export default function MyEventsScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.header}>My Events</Text>
-
-      {/* 🔄 Optional Reset Button */}
-      <TouchableOpacity onPress={resetAll}>
-        <Text style={styles.resetText}>Reset All Events</Text>
-      </TouchableOpacity>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>←</Text>
+        </TouchableOpacity>
+        <View style={styles.headerTitleContainer}>
+          <Text style={styles.title}>My Events</Text>
+        </View>
+      </View>
 
       {/* --- Ongoing Events --- */}
       <View style={styles.section}>
@@ -300,6 +295,11 @@ export default function MyEventsScreen() {
         <Text style={styles.joinText}>Join New Event</Text>
       </TouchableOpacity>
 
+      {/* 🔄 Optional Reset Button */}
+      <TouchableOpacity onPress={resetAll}>
+        <Text style={styles.resetText}>Reset All Events</Text>
+      </TouchableOpacity>
+
       {/* --- Modal for Joining --- */}
       <Modal animationType="slide" transparent visible={modalVisible}>
         <View style={styles.modalOverlay}>
@@ -333,19 +333,74 @@ export default function MyEventsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9fafc', padding: 16 },
-  header: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#E75C1A',
-    marginTop: 40,
-    marginBottom: 10,
-    textAlign: 'center',
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  resetText: { color: '#E75C1A', textAlign: 'center', marginBottom: 20 },
-  section: { marginBottom: 24 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#E75C1A', marginLeft: 8 },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 16,
+    backgroundColor: '#E75C1A',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  backButton: {
+    padding: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  backButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    width: 30,
+    height: 22,
+    textAlign: 'center',
+    color: '#fff',
+    marginTop: -10,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '500',
+    color: '#fff',
+    letterSpacing: 1,
+    marginTop: 6,	
+    marginLeft: -20,
+  },
+  placeholder: {
+    width: 40,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  resetText: { 
+    color: '#E75C1A', 
+    textAlign: 'center', 
+    marginBottom: 20 
+  },
+  section: { 
+    marginBottom: 24 
+  },
+  sectionHeader: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginTop: 16,
+    marginBottom: 10, 
+    marginLeft: 16
+  },
+  sectionTitle: { 
+    fontSize: 18, 
+    fontWeight: '600', 
+    color: '#E75C1A', 
+    marginLeft: 8 
+  },
   card: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -379,7 +434,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
   },
-  doneText: { color: '#042175', fontWeight: 'bold' },
+  doneText: { 
+    color: '#042175', 
+    fontWeight: 'bold' },
   deleteButton: {
     backgroundColor: '#E75C1A',
     borderRadius: 8,
@@ -394,8 +451,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
   },
-  deleteAllText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
-  noEvent: { color: '#999', fontStyle: 'italic', marginLeft: 4 },
+  deleteAllText: { 
+    color: '#fff', 
+    fontWeight: 'bold', 
+    fontSize: 13 
+  },
+  noEvent: { 
+    color: '#999', 
+    fontStyle: 'italic', 
+    marginLeft: 20 
+  },
   joinButton: {
     flexDirection: 'row',
     backgroundColor: '#E75C1A',
@@ -411,6 +476,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+    joinButton: {
+    flexDirection: 'row',
+    backgroundColor: '#E75C1A',
+    padding: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 30,
   },
   modalContainer: {
     backgroundColor: '#fff',
@@ -457,4 +531,5 @@ const styles = StyleSheet.create({
   closeModalText: { color: '#fff', fontWeight: 'bold' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f9fafc' },
   loadingText: { marginTop: 10, color: '#555' },
+  
 });

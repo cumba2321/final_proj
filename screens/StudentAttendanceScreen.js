@@ -88,7 +88,7 @@ export default function StudentAttendanceScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backIcon}>‹</Text>
+          <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
           <Text style={styles.title}>My Attendance</Text>
@@ -182,12 +182,46 @@ export default function StudentAttendanceScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingTop: 40, paddingBottom: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  backButton: { padding: 8 },
-  backIcon: { fontSize: 24, color: '#333' },
-  headerTitleContainer: { flex: 1, alignItems: 'center' },
-  title: { fontSize: 18, fontWeight: '700', color: '#E75C1A' },
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 50,
+    paddingBottom: 16,
+    backgroundColor: '#E75C1A',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  backButton: {
+    padding: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  backButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    width: 30,
+    height: 22,
+    textAlign: 'center',
+    color: '#fff',
+    marginTop: -10,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '500',
+    color: '#fff',
+    letterSpacing: 1,
+    marginTop: 6,	
+    marginLeft: 10,
+  },
 
   content: { padding: 16, flex: 1 },
   calendarCard: { borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12, backgroundColor: '#fff' },

@@ -420,13 +420,13 @@ export default function PATHclassScreen() {
       </View>
 
       {/* Debug Info - Remove this in production */}
-      {__DEV__ && (
+      {/* {__DEV__ && (
         <View style={{ padding: 10, backgroundColor: '#fff' }}>
           <Text style={{ fontSize: 12 }}>
             Debug: User: {currentUser?.email || 'None'} | Role: {userRole || 'None'} | Classes: {classes.length}
           </Text>
         </View>
-      )}
+      )} */}
 
       {/* Content */}
       <ScrollView 
@@ -763,7 +763,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   backButtonText: {
-    fontSize: 30,
+    fontSize: 18,
+    fontWeight: 'bold',
     width: 30,
     height: 22,
     textAlign: 'center',

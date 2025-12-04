@@ -5,8 +5,8 @@ import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firesto
 import { onAuthStateChanged } from 'firebase/auth';
 
 export default function PeopleScreen() {
-  const [activeTab, setActiveTab] = useState('World');
-  const [worldUsers, setWorldUsers] = useState([]);
+  const [activeTab, setActiveTab] = useState('Public');
+  const [publicUsers, setPublicUsers] = useState([]);
   const [classmates, setClassmates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -36,20 +36,20 @@ export default function PeopleScreen() {
       return;
     }
     
-    if (activeTab === 'World') {
-      console.log('PeopleScreen: Fetching world users');
-      fetchWorldUsers();
+    if (activeTab === 'Public') {
+      console.log('PeopleScreen: Fetching public users');
+      fetchPublicUsers();
     } else {
       console.log('PeopleScreen: Fetching classmates');
       fetchClassmates();
     }
   }, [activeTab, currentUser, authInitialized]);
 
-  const fetchWorldUsers = async () => {
+  const fetchPublicUsers = async () => {
     if (!currentUser) return;
     
     try {
-      console.log('PeopleScreen: Starting to fetch world users');
+      console.log('PeopleScreen: Starting to fetch public users');
       setLoading(true);
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
@@ -69,10 +69,10 @@ export default function PeopleScreen() {
         }
       });
       
-      console.log('PeopleScreen: Fetched world users:', users.length);
-      setWorldUsers(users);
+      console.log('PeopleScreen: Fetched public users:', users.length);
+      setPublicUsers(users);
     } catch (error) {
-      console.error('Error fetching world users:', error);
+      console.error('Error fetching public users:', error);
       Alert.alert('Error', 'Failed to load users');
     } finally {
       setLoading(false);
@@ -230,7 +230,7 @@ export default function PeopleScreen() {
     </TouchableOpacity>
   );
 
-  const currentData = activeTab === 'World' ? worldUsers : classmates;
+  const currentData = activeTab === 'Public' ? publicUsers : classmates;
 
   // Show loading while authentication is initializing
   if (!authInitialized) {
@@ -263,11 +263,11 @@ export default function PeopleScreen() {
       {/* Tab Buttons */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'World' && styles.activeTab]}
-          onPress={() => setActiveTab('World')}
+          style={[styles.tabButton, activeTab === 'Public' && styles.activeTab]}
+          onPress={() => setActiveTab('Public')}
         >
-          <Text style={[styles.tabText, activeTab === 'World' && styles.activeTabText]}>
-            World
+          <Text style={[styles.tabText, activeTab === 'Public' && styles.activeTabText]}>
+            Public
           </Text>
         </TouchableOpacity>
         
@@ -287,7 +287,7 @@ export default function PeopleScreen() {
           <Text style={styles.loadingText}>Loading...</Text>
         ) : currentData.length === 0 ? (
           <Text style={styles.emptyText}>
-            {activeTab === 'World' ? 'No users found' : 'No classmates found'}
+            {activeTab === 'Public' ? 'No users found' : 'No classmates found'}
           </Text>
         ) : (
           <FlatList
