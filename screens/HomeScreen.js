@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Alert, TextInput, RefreshControl, Share } from 'react-native';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Image, Alert, TextInput, RefreshControl, Share, Animated, Dimensions  } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase';
@@ -12,6 +13,8 @@ export default function HomeScreen() {
   const [currentUser, setCurrentUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [classWallPosts, setClassWallPosts] = useState([]);
+  const [usersCache, setUsersCache] = useState({});
+  const authorUnsubsRef = useRef({});
   
   // Post menu functionality
   const [showPostMenu, setShowPostMenu] = useState(false);
@@ -23,6 +26,7 @@ export default function HomeScreen() {
   const [selectedImages, setSelectedImages] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [dbPermissionDenied, setDbPermissionDenied] = useState(false);
   
   // Audience selection functionality
   const [selectedAudience, setSelectedAudience] = useState('Public'); // Default to Public
@@ -30,6 +34,35 @@ export default function HomeScreen() {
   const [showSectionSelection, setShowSectionSelection] = useState(false);
   const [selectedSections, setSelectedSections] = useState([]);
   const [userEnrolledSections, setUserEnrolledSections] = useState([]); // User's enrolled sections from Firebase
+
+  // --- ANIMATION LOGIC FOR SIDE MENU START - nag add ko ani ---
+  const screenWidth = Dimensions.get('window').width;
+  const menuWidth = screenWidth * 0.75; // Matches the 75% width in styles
+  // Initial position is off-screen to the left (negative width)
+  const slideAnim = useRef(new Animated.Value(-menuWidth)).current;
+
+  // Handle sliding in when modal opens
+  useEffect(() => {
+    if (showSideMenu) {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showSideMenu]);
+
+  // Handle sliding out before closing state
+  const closeSideMenu = () => {
+    Animated.timing(slideAnim, {
+      toValue: -menuWidth,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowSideMenu(false);
+    });
+  };
+  // --- ANIMATION LOGIC FOR SIDE MENU END ---
 
   // Helper function to display audience text
   const getAudienceDisplayText = () => {
@@ -80,44 +113,52 @@ export default function HomeScreen() {
   // Get filtered posts for display based on user's access and audience settings
   const getFilteredPosts = () => {
     return classWallPosts.filter(post => {
-      // Filter posts based on audience setting
-      if (!post.audience || post.audience === 'Public') {
-        return true; // Show all public posts (including campus announcements)
-      }
-      
-      if (post.audience === 'Only Me') {
-        // Only show "Only Me" posts to the author
-        return post.authorId === currentUser?.uid;
-      }
-      
-      if (post.audience === 'Classmates' || post.audience === 'Class') {
-        // Always show posts authored by current user
-        if (post.authorId === currentUser?.uid) {
-          return true;
+      // Authors always see their own posts
+      if (post.authorId === currentUser?.uid) return true;
+
+      const audience = post.audience || 'Public';
+
+      // Public posts are visible to everyone
+      if (audience === 'Public') return true;
+
+      // Only Me: only visible to the author (handled above) so hide for others
+      if (audience === 'Only Me') return false;
+
+      // Class / Classmates: visible only to users enrolled in any of the selected sections
+      if (audience === 'Class' || audience === 'Classmates') {
+        const postSections = Array.isArray(post.selectedSections) ? post.selectedSections : [];
+        if (postSections.length === 0) return false; // if no sections specified, don't show to others
+
+        // Normalize helper: convert different shapes into comparable strings
+        const normalize = (v) => {
+          if (!v && v !== 0) return '';
+          if (typeof v === 'string') return v.trim().toLowerCase();
+          if (typeof v === 'object') {
+            // Common shapes: { id }, { id, section }, { subject, section }
+            if (v.id) return String(v.id).trim().toLowerCase();
+            if (v.section && v.subject) return `${String(v.subject).trim()} - ${String(v.section).trim()}`.toLowerCase();
+            if (v.section) return String(v.section).trim().toLowerCase();
+          }
+          return String(v).trim().toLowerCase();
+        };
+
+        const normalizedUserSections = (userEnrolledSections || []).map(s => normalize(s));
+        const normalizedPostSections = postSections.map(s => normalize(s));
+
+        // Check for any intersection with tolerant matching (exact or substring)
+        for (const p of normalizedPostSections) {
+          if (!p) continue;
+          for (const u of normalizedUserSections) {
+            if (!u) continue;
+            if (p === u) return true;
+            if (p.includes(u) || u.includes(p)) return true;
+          }
         }
-        
-        // For Class posts and announcements, check if user is enrolled in any of the selected classes
-        if (!post.selectedSections || post.selectedSections.length === 0) {
-          return true; // If no specific sections selected, show to all authenticated users
-        }
-        
-        // Check if current user has access to any of the selected classes
-        // For announcements, match by class ID and section
-        if (post.isAnnouncement && post.selectedSections.length > 0) {
-          return userEnrolledSections.some(userClass => 
-            post.selectedSections.some(postSection => 
-              userClass.id === postSection.id && userClass.section === postSection.section
-            )
-          );
-        }
-        
-        // For regular class posts, use existing logic
-        return userEnrolledSections.some(userClass => 
-          post.selectedSections.includes(userClass)
-        );
+        return false;
       }
-      
-      return true; // Default to showing the post
+
+      // Fallback: hide
+      return false;
     });
   };
   
@@ -1019,8 +1060,8 @@ export default function HomeScreen() {
     let unsubscribePosts = null;
     
     if (db) {
-      const postsCollection = collection(db, 'classWall');
-      unsubscribePosts = onSnapshot(postsCollection, (snapshot) => {
+    const postsCollection = collection(db, 'classWall');
+    unsubscribePosts = onSnapshot(postsCollection, (snapshot) => {
         // Check if user is still authenticated when snapshot arrives
         if (!auth.currentUser) {
           console.log('User not authenticated, skipping snapshot processing');
@@ -1083,8 +1124,14 @@ export default function HomeScreen() {
         });
       }, (error) => {
         console.error('Error listening to posts:', error);
-        // Fallback to manual fetch
-        fetchClassWallPosts();
+        // If permission denied, set flag and inform user; avoid retrying the realtime listener
+        if (error && error.code === 'permission-denied') {
+          setDbPermissionDenied(true);
+          Alert.alert('Permission error', 'You do not have permission to read posts. Please sign in with an authorized account or contact the administrator.');
+        } else {
+          // Fallback to manual fetch for other error types
+          fetchClassWallPosts();
+        }
       });
     } else {
       // Fetch ClassWall posts when component mounts and no database
@@ -1098,6 +1145,86 @@ export default function HomeScreen() {
       }
     };
   }, []);
+
+  // Subscribe to author user docs for all posts so author profile updates propagate to posts
+  useEffect(() => {
+    if (!db) return;
+    const authorIds = Array.from(new Set(classWallPosts.map(p => p.authorId).filter(Boolean)));
+
+    // Subscribe to new authors
+    authorIds.forEach((aid) => {
+      if (authorUnsubsRef.current[aid]) return; // already subscribed
+      try {
+        const userRef = doc(db, 'users', aid);
+        const unsub = onSnapshot(userRef, (snap) => {
+          if (!snap.exists()) return;
+          const data = snap.data();
+          setUsersCache(prev => ({ ...prev, [aid]: data }));
+          // merge into posts so feed updates immediately
+          setClassWallPosts(prev => prev.map(p => p.authorId === aid ? ({ ...p, author: data.displayName || p.author, authorAvatar: data.photoURL || p.authorAvatar, role: data.role || p.role }) : p));
+        }, (err) => {
+          console.error('Error listening to user doc for author', aid, err);
+        });
+        authorUnsubsRef.current[aid] = unsub;
+      } catch (err) {
+        console.error('Failed to subscribe to author', aid, err);
+      }
+    });
+
+    // Unsubscribe authors that are no longer in posts
+    Object.keys(authorUnsubsRef.current).forEach((existing) => {
+      if (!authorIds.includes(existing)) {
+        try { authorUnsubsRef.current[existing](); } catch (e) {}
+        delete authorUnsubsRef.current[existing];
+        setUsersCache(prev => { const next = { ...prev }; delete next[existing]; return next; });
+      }
+    });
+
+    return () => {};
+  }, [classWallPosts]);
+
+  // Clean up author subscriptions on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(authorUnsubsRef.current).forEach(unsub => { try { unsub(); } catch (e) {} });
+      authorUnsubsRef.current = {};
+    };
+  }, []);
+
+  // Keep posts updated when the current user changes their profile (name/avatar/role)
+  useEffect(() => {
+    if (!currentUser || !db || !currentUser.uid) return;
+    let unsubUser = () => {};
+    try {
+      const userRef = doc(db, 'users', currentUser.uid);
+      unsubUser = onSnapshot(userRef, (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        // Update currentUser local copy
+        setCurrentUser(prev => ({ ...prev, displayName: data.displayName || prev?.displayName, photoURL: data.photoURL || prev?.photoURL }));
+        // Update any posts authored by this user in local state so old posts reflect new profile
+        setClassWallPosts(prev => prev.map(p => {
+          if (p.authorId === currentUser.uid) {
+            return {
+              ...p,
+              author: data.displayName || p.author,
+              authorAvatar: data.photoURL || p.authorAvatar,
+              role: data.role || p.role
+            };
+          }
+          return p;
+        }));
+      }, (err) => {
+        console.error('Error listening to current user doc:', err);
+      });
+    } catch (err) {
+      console.error('Failed to subscribe to current user doc changes:', err);
+    }
+
+    return () => {
+      try { unsubUser(); } catch (e) {}
+    };
+  }, [currentUser?.uid]);
 
   // Fetch user's enrolled sections when currentUser or userRole changes
   useEffect(() => {
@@ -1128,7 +1255,7 @@ export default function HomeScreen() {
 
   const menuItems = [
     'Dashboard',
-    'PathFit Class',
+    'PathFit Class', //mao ni na change (check github)
     'Announcement',
     'My Events',
     'Attendance'
@@ -1334,7 +1461,7 @@ export default function HomeScreen() {
       </ScrollView>
 
       {/* New Post Modal */}
-      <Modal visible={showNewPostModal} transparent={true} animationType="slide">
+       <Modal visible={showNewPostModal} transparent={true} animationType="fade">
         <View style={styles.newPostOverlay}>
           <View style={styles.newPostModal}>
             <View style={styles.newPostHeader}>
@@ -1726,15 +1853,30 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Side Menu Modal */}
-      <Modal
+      {/* Side Menu Modal - error ni dari */}
+     <Modal
         visible={showSideMenu}
         transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowSideMenu(false)}
+        animationType="fade" // Fades the background, while we manually slide the menu
+        onRequestClose={closeSideMenu} // Handle Android back button
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.sideMenu}>
+          <TouchableOpacity 
+            style={styles.overlayClickArea} 
+            onPress={closeSideMenu} 
+            activeOpacity={1} 
+          />
+          
+          <Animated.View 
+            style={[
+              styles.sideMenu, 
+              { 
+                transform: [{ translateX: slideAnim }],
+                left: 0, // Ensure it is anchored to the left
+                right: undefined // Remove right anchor from original styles
+              }
+            ]}
+          >
             <View style={styles.sideMenuHeader}>
               <View style={styles.sideMenuTitleContainer}>
                 <Image
@@ -1750,7 +1892,7 @@ export default function HomeScreen() {
                   </View>
                 )}
               </View>
-              <TouchableOpacity onPress={() => setShowSideMenu(false)}>
+              <TouchableOpacity onPress={closeSideMenu}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -1761,32 +1903,32 @@ export default function HomeScreen() {
                   key={index} 
                   style={styles.menuItem}
                   onPress={() => {
-                    setShowSideMenu(false);
+                    // Close menu first, then navigate
+                    closeSideMenu();
                     
-                    // Navigate based on menu item
-                    switch(item) {
-                      case 'PATHclass':
-                        navigation.navigate('PATHclass');
-                        break;
-                      case 'Announcement':
-                        navigation.navigate('SectionAnnouncement');
-                        break;
-                      case 'Attendance':
-                        // Navigate to the appropriate attendance screen by role
-                        if (userRole === 'instructor') {
-                          navigation.navigate('InstructorAttendance');
-                        } else {
-                          navigation.navigate('StudentAttendance');
+                    // Small timeout to allow animation to start/finish smoothly
+                    setTimeout(() => {
+                        switch(item) {
+                        case 'PathFit Class': 
+                            navigation.navigate('PATHclass');
+                            break;
+                        case 'Announcement':
+                            navigation.navigate('SectionAnnouncement');
+                            break;
+                        case 'Attendance':
+                            if (userRole === 'instructor') {
+                            navigation.navigate('InstructorAttendance');
+                            } else {
+                            navigation.navigate('StudentAttendance');
+                            }
+                            break;
+                        case 'My Events':
+                            navigation.navigate('MyEvents');
+                            break;
+                        default:
+                            break;
                         }
-                        break;
-                      case 'My Events':
-                        navigation.navigate('MyEvents');
-                          break;
-
-                      default:
-                        // Dashboard or other items stay on home
-                        break;
-                    }
+                    }, 300);
                   }}
                 >
                   <Text style={styles.menuItemText}>{item}</Text>
@@ -1827,7 +1969,7 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
@@ -1837,7 +1979,7 @@ export default function HomeScreen() {
           <View style={styles.audienceModal}>
             <View style={styles.audienceModalHeader}>
               <Text style={styles.audienceModalTitle}>Select Audience</Text>
-              <TouchableOpacity onPress={() => setShowAudienceModal(false)}>
+              <TouchableOpacity onPress={() => { setShowAudienceModal(false); setShowSectionSelection(false); }}>
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -1846,8 +1988,13 @@ export default function HomeScreen() {
               <TouchableOpacity 
                 style={[styles.audienceOptionItem, selectedAudience === 'Public' && styles.selectedAudienceOption]}
                 onPress={() => {
-                  setSelectedAudience('Public');
+                  // Close modal first, then update audience to avoid UI thread work while modal closing
                   setShowAudienceModal(false);
+                  setShowSectionSelection(false);
+                  setTimeout(() => {
+                    setSelectedAudience('Public');
+                    setSelectedSections([]);
+                  }, 50);
                 }}
               >
                 <Text style={styles.audienceOptionIcon}>🌍</Text>
@@ -1861,6 +2008,8 @@ export default function HomeScreen() {
               <TouchableOpacity 
                 style={[styles.audienceOptionItem, (selectedAudience === 'Classmates' || selectedAudience === 'Class') && styles.selectedAudienceOption]}
                 onPress={() => {
+                  // Prepare for class/section selection
+                  setSelectedAudience('Class');
                   setShowSectionSelection(true);
                 }}
               >
@@ -1880,8 +2029,12 @@ export default function HomeScreen() {
               <TouchableOpacity 
                 style={[styles.audienceOptionItem, selectedAudience === 'Only Me' && styles.selectedAudienceOption]}
                 onPress={() => {
-                  setSelectedAudience('Only Me');
                   setShowAudienceModal(false);
+                  setShowSectionSelection(false);
+                  setTimeout(() => {
+                    setSelectedAudience('Only Me');
+                    setSelectedSections([]);
+                  }, 50);
                 }}
               >
                 <Text style={styles.audienceOptionIcon}>🔒</Text>
@@ -1897,9 +2050,9 @@ export default function HomeScreen() {
             {showSectionSelection && (
               <View style={styles.sectionSelectionContainer}>
                 <View style={styles.sectionSelectionHeader}>
-                  <TouchableOpacity onPress={() => setShowSectionSelection(false)}>
-                    <Text style={styles.backButton}>← Back</Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowSectionSelection(false)}>
+                      <Text style={styles.backButton}>← Back</Text>
+                    </TouchableOpacity>
                   <Text style={styles.sectionSelectionTitle}>Select Classes</Text>
             
                   <TouchableOpacity 

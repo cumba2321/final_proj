@@ -401,22 +401,8 @@ export default function PATHclassScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>PathFit Class</Text>
-        <View style={styles.headerRight}>
-          {userRole && (
-            <View style={[
-              styles.roleBadge,
-              userRole === 'instructor' ? styles.instructorBadge : styles.studentBadge
-            ]}>
-              <Text style={[
-                styles.roleText,
-                userRole === 'instructor' ? styles.instructorText : styles.studentText
-              ]}>
-                {userRole}
-              </Text>
-            </View>
-          )}
-        </View>
+        <Text style={styles.title}>PATHFIT CLASS</Text>
+        <View style={styles.headerRight} />
       </View>
 
       {/* Debug Info - Remove this in production */}

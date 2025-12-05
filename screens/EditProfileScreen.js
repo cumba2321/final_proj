@@ -14,6 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import { auth, db } from '../firebase';
 import { updateProfile } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs as getDocsFirestore } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function EditProfileScreen() {
@@ -142,6 +143,27 @@ export default function EditProfileScreen() {
         avatar: photoURL,
         updatedAt: new Date()
       }, { merge: true });
+
+      // Also update existing ClassWall posts authored by this user so old posts show new profile
+      try {
+        const postsCol = collection(db, 'classWall');
+        const q = query(postsCol, where('authorId', '==', user.uid));
+        const snap = await getDocsFirestore(q);
+        const updates = [];
+        snap.forEach(docSnap => {
+          const postRef = doc(db, 'classWall', docSnap.id);
+          updates.push(updateDoc(postRef, {
+            author: displayName.trim(),
+            authorAvatar: photoURL || null,
+            role: user.role || undefined
+          }).catch(err => {
+            console.warn('Failed updating post', docSnap.id, err);
+          }));
+        });
+        await Promise.all(updates);
+      } catch (err) {
+        console.error('Error updating user posts:', err);
+      }
 
       Alert.alert('Success', 'Profile updated successfully!', [
         { text: 'OK', onPress: () => navigation.goBack() }

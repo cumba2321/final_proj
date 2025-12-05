@@ -2,7 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { db, auth } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot, addDoc, serverTimestamp, doc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 // Student-facing attendance view: shows only Present and Absent days (calendar highlights + lists)
 export default function StudentAttendanceScreen() {
@@ -10,22 +11,115 @@ export default function StudentAttendanceScreen() {
 
   const [attendance, setAttendance] = useState({});
   const [loading, setLoading] = useState(true);
+  const [hasJoinedClass, setHasJoinedClass] = useState(null);
+  const [joinedClasses, setJoinedClasses] = useState([]);
+  const [selectedClassId, setSelectedClassId] = useState(null);
+  const [showClassPicker, setShowClassPicker] = useState(false);
+  const [requesting, setRequesting] = useState(false);
 
-  // Sample attendance data for demonstration
+  // Load real attendance data from Firestore
   useEffect(() => {
-    // Create some sample attendance records
-    const sampleAttendance = {
-      '2025-11-01': 'present',
-      '2025-11-02': 'present',
-      '2025-11-03': 'absent',
-      '2025-11-04': 'present',
+    let unsub = () => {};
+    const checkJoinedAndLoadAttendance = async (user) => {
+      if (!user || !db) {
+        setHasJoinedClass(false);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Check if student joined any classes
+        const classesCol = collection(db, 'classes');
+        const q = query(classesCol, where('students', 'array-contains', user.uid));
+        const snap = await getDocs(q);
+        
+        if (snap.empty) {
+          setHasJoinedClass(false);
+          setAttendance({});
+          setJoinedClasses([]);
+          setLoading(false);
+        } else {
+          setHasJoinedClass(true);
+          const classes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setJoinedClasses(classes);
+          setSelectedClassId(classes[0]?.id || null);
+          
+          // Load attendance records for this student
+          const attendanceCol = collection(db, 'attendance');
+          const attendanceQuery = query(attendanceCol, where('studentId', '==', user.uid));
+          
+          // Subscribe to real-time updates
+          const unsubAttendance = onSnapshot(
+            attendanceQuery,
+            (attendanceSnap) => {
+              const attendanceData = {};
+              attendanceSnap.forEach((doc) => {
+                const data = doc.data();
+                // Flatten attendance: { dateString: 'present'|'absent'|'late' }
+                if (data.date && data.status) {
+                  attendanceData[data.date] = data.status;
+                }
+              });
+              setAttendance(attendanceData);
+              setLoading(false);
+            },
+            (err) => {
+              console.error('Error loading attendance:', err);
+              if (err.code === 'permission-denied') {
+                Alert.alert('Permission', 'Unable to load attendance records. Check Firestore rules.');
+              }
+              setLoading(false);
+            }
+          );
+          
+          unsub = unsubAttendance;
+        }
+      } catch (err) {
+        console.error('Error checking joined classes:', err);
+        setHasJoinedClass(false);
+        setLoading(false);
+      }
     };
-    
-    setAttendance(sampleAttendance);
-    setLoading(false);
+
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      checkJoinedAndLoadAttendance(user);
+    });
+
+    return () => {
+      unsubAuth();
+      unsub();
+    };
   }, []);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showCalendar, setShowCalendar] = useState(false);
+
+  // subscribe to aggregated attendance for selected class and today's date
+  useEffect(() => {
+    if (!selectedClassId || !db) return;
+    let unsubAgg = () => {};
+    try {
+      const todayKey = formatDateKey(new Date());
+      const aggDocId = `${selectedClassId}_${todayKey}`;
+      const aggRef = doc(db, 'attendance', aggDocId);
+      unsubAgg = onSnapshot(aggRef, (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        const attendanceMap = data.attendance || {};
+        const myStatus = attendanceMap[auth?.currentUser?.uid];
+        if (myStatus) {
+          setAttendance(prev => ({ ...prev, [todayKey]: myStatus }));
+        }
+      }, (err) => {
+        console.error('Error listening aggregated attendance (student):', err);
+      });
+    } catch (err) {
+      console.error('Failed subscribe aggregated attendance (student):', err);
+    }
+
+    return () => {
+      try { unsubAgg(); } catch (e) {}
+    };
+  }, [selectedClassId]);
 
   // Keep attendance up to date with selected month
   useEffect(() => {
@@ -43,6 +137,35 @@ export default function StudentAttendanceScreen() {
   const formatDisplayDate = (dateStr) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const requestAttendance = async () => {
+    if (!selectedClassId || !auth.currentUser) {
+      Alert.alert('Error', 'Please select a class first');
+      return;
+    }
+
+    setRequesting(true);
+    try {
+      const attendanceCol = collection(db, 'attendance');
+      const today = formatDateKey(new Date());
+      
+      await addDoc(attendanceCol, {
+        classId: selectedClassId,
+        studentId: auth.currentUser.uid,
+        studentName: auth.currentUser.displayName || 'Student',
+        date: today,
+        status: 'request',
+        requestedAt: serverTimestamp(),
+      });
+      
+      Alert.alert('Success', 'Attendance request submitted. Waiting for instructor approval.');
+    } catch (err) {
+      console.error('Error requesting attendance:', err);
+      Alert.alert('Error', 'Failed to submit attendance request');
+    } finally {
+      setRequesting(false);
+    }
   };
 
   const presentDates = useMemo(() => Object.keys(attendance).filter(k => attendance[k] === 'present'), [attendance]);
@@ -101,8 +224,34 @@ export default function StudentAttendanceScreen() {
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Loading attendance records...</Text>
           </View>
+        ) : hasJoinedClass === false ? (
+          <View style={{ padding: 24, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+            <Text style={{ fontSize: 18, color: '#666', textAlign: 'center', marginBottom: 12 }}>
+              you didnt join any class yet
+            </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('PATHclass')} style={{ backgroundColor: '#E75C1A', paddingHorizontal: 18, paddingVertical: 12, borderRadius: 8 }}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Join a class in PATHclass</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
-            <View>
+          <View style={{flex:1}}>
+            {/* Class selector and request button */}
+            <View style={styles.classSelectContainer}>
+              <TouchableOpacity onPress={() => setShowClassPicker(true)} style={styles.classSelectButton}>
+                <Text style={styles.classSelectLabel}>Select Class:</Text>
+                <Text style={styles.classSelectValue}>
+                  {joinedClasses.find(c => c.id === selectedClassId)?.name || 'Select a class'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={requestAttendance} 
+                disabled={requesting}
+                style={[styles.requestButton, requesting && styles.requestButtonDisabled]}
+              >
+                <Text style={styles.requestButtonText}>{requesting ? 'Requesting...' : 'Request Attendance'}</Text>
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.calendarCard}>
               <View style={styles.calendarHeaderRow}>
                   <Text style={styles.calendarTitleText}>{selectedMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' })}</Text>
@@ -174,6 +323,33 @@ export default function StudentAttendanceScreen() {
             </View>
 
             <View style={styles.calendarModalFooter}><TouchableOpacity onPress={() => setShowCalendar(false)}><Text style={styles.closeCalText}>Close</Text></TouchableOpacity></View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showClassPicker} transparent animationType="fade" onRequestClose={() => setShowClassPicker(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.classPickerModal}>
+            <Text style={styles.classPickerTitle}>Select a Class</Text>
+            <ScrollView style={styles.classPickerList}>
+              {joinedClasses.map((cls) => (
+                <TouchableOpacity
+                  key={cls.id}
+                  style={[styles.classPickerItem, selectedClassId === cls.id && styles.classPickerItemSelected]}
+                  onPress={() => {
+                    setSelectedClassId(cls.id);
+                    setShowClassPicker(false);
+                  }}
+                >
+                  <Text style={[styles.classPickerItemText, selectedClassId === cls.id && styles.classPickerItemTextSelected]}>
+                    {cls.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setShowClassPicker(false)} style={styles.classPickerClose}>
+              <Text style={styles.closeCalText}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -261,5 +437,22 @@ const styles = StyleSheet.create({
   calendarDaysScroll: { maxHeight: 300 },
   dayCellSmall: { width: 36, height: 32, justifyContent: 'center', alignItems: 'center', margin: 2, borderRadius: 6 },
   calendarModalFooter: { padding: 12, alignItems: 'flex-end' },
-  closeCalText: { color: '#E75C1A', fontWeight: '700' }
+  closeCalText: { color: '#E75C1A', fontWeight: '700' },
+
+  classSelectContainer: { flexDirection: 'row', padding: 12, gap: 8, marginBottom: 12, alignItems: 'center' },
+  classSelectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff' },
+  classSelectLabel: { fontSize: 12, color: '#666', marginRight: 6 },
+  classSelectValue: { fontSize: 14, fontWeight: '600', color: '#333', flex: 1 },
+  requestButton: { backgroundColor: '#E75C1A', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8 },
+  requestButtonDisabled: { opacity: 0.6 },
+  requestButtonText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+
+  classPickerModal: { width: 300, backgroundColor: '#fff', borderRadius: 10, overflow: 'hidden', maxHeight: 400 },
+  classPickerTitle: { fontSize: 16, fontWeight: '700', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  classPickerList: { maxHeight: 250 },
+  classPickerItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  classPickerItemSelected: { backgroundColor: '#E75C1A' },
+  classPickerItemText: { fontSize: 14, color: '#333' },
+  classPickerItemTextSelected: { color: '#fff', fontWeight: '600' },
+  classPickerClose: { padding: 12, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#eee' },
 });
